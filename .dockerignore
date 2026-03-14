@@ -1,0 +1,12 @@
+.env
+.venv
+__pycache__
+*.pyc
+.git
+.gitignore
+.gitattributes
+.python-version
+.claude
+plans
+LICENSE
+*.md
