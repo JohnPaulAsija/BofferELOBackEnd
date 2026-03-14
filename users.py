@@ -64,6 +64,7 @@ async def get_leaderboard(supabase: AsyncClient = Depends(get_supabase)):
         await supabase.from_("profiles")
         .select("id, username, elo, wins, losses")
         .not_.is_("username", "null")
+        .neq("id", DELETED_USER_SENTINEL_ID)
         .order("elo", desc=True)
         .limit(100)  # intentionally capped — pagination not supported yet
         .execute()
