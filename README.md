@@ -91,7 +91,7 @@ The image uses a healthcheck against `GET /health`. Cloud Run sets the `PORT` en
 | `PATCH` | `/users/me/preferences` | Update own preference fields (gender, game, weapon, shield) |
 | `PATCH` | `/users/me/username` | Change own username |
 | `PATCH` | `/users/me/email` | Request email change (confirmation email sent) |
-| `DELETE` | `/users/me` | Delete own account (match history preserved) |
+| `DELETE` | `/users/me` | Delete own account (pending matches auto-rejected, confirmed history preserved) |
 | `POST` | `/matches` | Report a match (requires `rule_set_id`; ELO delta pre-calculated at report time) |
 | `POST` | `/matches/confirm` | Confirm one or more pending matches (up to 50); atomically applies ELO changes per match; partial success |
 | `POST` | `/matches/reject` | Reject one or more pending matches (up to 50); no ELO effect; partial success |
@@ -107,7 +107,7 @@ The image uses a healthcheck against `GET /health`. Cloud Run sets the `PORT` en
 | `PATCH` | `/users/{user_id}/preferences` | superAdmin | Update any user's preferences |
 | `PATCH` | `/users/{user_id}/username` | superAdmin | Change any user's username |
 | `PATCH` | `/users/{user_id}/email` | superAdmin | Change any user's email (immediate) |
-| `DELETE` | `/users/{user_id}` | superAdmin | Delete any user account |
+| `DELETE` | `/users/{user_id}` | superAdmin | Delete any user account (pending matches auto-rejected) |
 | `DELETE` | `/admin/matches/{match_id}` | superAdmin | Permanently delete a match by ID (no ELO rollback) |
 
 ## CORS

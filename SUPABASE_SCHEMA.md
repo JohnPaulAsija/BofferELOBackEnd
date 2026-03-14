@@ -230,7 +230,7 @@ Returns a JSONB object with two arrays — `confirmed` and `unconfirmed` — eac
 reassign_matches_on_profile_delete() RETURNS trigger
 ```
 
-The sole mechanism for reassigning match FK columns (`winnerId`, `loserId`, `reporterId`, `confirmedById`, `rejectedById`) from a deleted user to the `[deleted]` sentinel UUID (`00000000-0000-0000-0000-000000000002`). Preserves match history when a user account is deleted. Fires automatically via the `before_profile_delete` trigger during GoTrue's CASCADE delete of `auth.users` → `profiles`.
+First auto-rejects any pending matches where the deleted user is a participant (`winnerId` or `loserId`) — sets `rejectedAt = now()`, `rejectedById = OLD.id`, `rejectedByName = '[deleted]'` on matches where `confirmedAt IS NULL AND rejectedAt IS NULL`. Then reassigns all match FK columns (`winnerId`, `loserId`, `reporterId`, `confirmedById`, `rejectedById`) from the deleted user to the `[deleted]` sentinel UUID (`00000000-0000-0000-0000-000000000002`). Preserves confirmed match history when a user account is deleted. Fires automatically via the `before_profile_delete` trigger during GoTrue's CASCADE delete of `auth.users` → `profiles`.
 
 - **Security:** `SECURITY DEFINER` (runs as `postgres`), `SET search_path = 'public'`
 - The `search_path` setting is required because this trigger fires during a GoTrue CASCADE delete, which runs in an `auth`-schema context that does not include `public` — without it, the `"Matches"` table reference fails with `relation "Matches" does not exist`
@@ -279,7 +279,7 @@ Fires after every new Supabase Auth signup. Ensures every authenticated user has
 | **Timing**      | `BEFORE`                                       |
 | **Function**    | `reassign_matches_on_profile_delete()`         |
 
-Fires before a `profiles` row is deleted (including via CASCADE from `auth.users`). Reassigns all match FK references from the deleted user to the `[deleted]` sentinel, preserving match history.
+Fires before a `profiles` row is deleted (including via CASCADE from `auth.users`). Auto-rejects pending matches where the deleted user is a participant, then reassigns all match FK references from the deleted user to the `[deleted]` sentinel, preserving confirmed match history.
 
 > **Note:** The function must use `SET search_path = 'public'` because when triggered via GoTrue's CASCADE delete of `auth.users`, the execution context has a `search_path` that does not include `public`, causing `"Matches"` table lookups to fail.
 
@@ -304,6 +304,7 @@ Applied in order via `apply_migration` (Supabase MCP). Never modify or delete ex
 | —                 | `fix_reassign_matches_trigger_search_path` | Adds `SET search_path = 'public'` to `reassign_matches_on_profile_delete()` so it works when invoked from GoTrue's CASCADE delete context |
 | —                 | `fix_delete_user_profile_search_path` | Adds `SET search_path = 'public'` to `delete_user_profile()` for the same reason |
 | —                 | `drop_unused_delete_user_profile_function` | Drops the unused `delete_user_profile(uuid)` function; match reassignment is handled solely by the `before_profile_delete` trigger |
+| —                 | `auto_reject_pending_matches_on_delete` | Updates `reassign_matches_on_profile_delete()` to auto-reject pending matches (where deleted user is a participant) before reassigning FK columns |
 
 ---
 

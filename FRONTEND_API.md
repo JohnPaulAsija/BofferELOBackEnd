@@ -538,7 +538,7 @@ Authorization: Bearer <jwt>
 ---
 
 ### `DELETE /users/me`
-Delete the authenticated user's account. Match history is preserved — all match FK references are reassigned to a `[deleted]` sentinel profile; denormalized name fields (winnerName, loserName) remain unchanged.
+Delete the authenticated user's account. Any pending matches where the user is a participant are automatically rejected. Confirmed match history is preserved — all match FK references are reassigned to a `[deleted]` sentinel profile; denormalized name fields (winnerName, loserName) remain unchanged.
 
 **Headers**
 ```
@@ -636,7 +636,7 @@ Authorization: Bearer <superAdmin_jwt>
 ---
 
 ### `DELETE /users/{user_id}`
-Delete any user's account. **superAdmin only** (`role_id = 3`). Match history is preserved via the sentinel. Cannot delete the system sentinel user or the bootstrap superAdmin.
+Delete any user's account. **superAdmin only** (`role_id = 3`). Any pending matches where the user is a participant are automatically rejected. Confirmed match history is preserved via the sentinel. Cannot delete the system sentinel user or the bootstrap superAdmin.
 
 **Headers**
 ```
