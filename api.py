@@ -1,7 +1,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
-from importlib.metadata import version
+import tomllib
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_cache import FastAPICache
@@ -15,6 +15,9 @@ from fastapi_cache.decorator import cache
 from models import RootResponse, HealthResponse, VersionResponse, OptionsResponse
 from rate_limit import limiter
 from admin import router as admin_router
+
+with open("pyproject.toml", "rb") as f:
+    VERSION = tomllib.load(f)["project"]["version"]
 
 logger = logging.getLogger(__name__)
 from matches import router as matches_router
@@ -79,7 +82,7 @@ async def health_check(supabase: AsyncClient = Depends(get_supabase)):
 @app.get("/version", response_model=VersionResponse)
 def get_version():
     """Get the API version from pyproject.toml."""
-    return {"version": version("apitest")}
+    return {"version": VERSION}
 
 @app.get("/options", response_model=OptionsResponse)
 @cache(expire=60, namespace="options")
