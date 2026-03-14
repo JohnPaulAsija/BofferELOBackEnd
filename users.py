@@ -25,18 +25,6 @@ def _is_valid_email(email: str) -> bool:
     return bool(_EMAIL_RE.match(email))
 
 
-async def _reassign_matches_to_sentinel(supabase: AsyncClient, user_id: str):
-    """Reassign all match FK columns referencing user_id to the deleted-user sentinel.
-
-    Called before deleting an auth user so that match history is preserved.
-    GoTrue's admin delete_user does not reliably cascade through the
-    profiles FK in a way that fires row-level triggers.
-    """
-    sentinel = DELETED_USER_SENTINEL_ID
-    for col in ("winnerId", "loserId", "reporterId", "confirmedById", "rejectedById"):
-        await supabase.from_("Matches").update({col: sentinel}).eq(col, user_id).execute()
-
-
 router = APIRouter(prefix="/users")
 
 MATCH_COLUMNS = "id, winnerId, winnerName, loserId, loserName, winnerEloBefore, loserEloBefore, eloChange, confirmedAt, confirmedById, confirmedByName, reportedAt, reporterId, reporterName, rejectedAt, rejectedById, rejectedByName, ruleSetId"
@@ -205,7 +193,6 @@ async def change_my_email(request: Request, body: ChangeEmailRequest, authorizat
 async def delete_own_account(request: Request, authorization: str = Header(...), supabase: AsyncClient = Depends(get_supabase)):
     user = await resolve_token(authorization, supabase)
     user_id = str(user.user.id)
-    await _reassign_matches_to_sentinel(supabase, user_id)
     await supabase.auth.admin.delete_user(user_id)
     logger.info("account deleted: user_id=%s (self)", user_id)
     return {"deleted": user_id}
@@ -276,7 +263,6 @@ async def delete_user(user_id: uuid.UUID, authorization: str = Header(...), supa
         raise HTTPException(status_code=404, detail="User not found")
     if (target_user.user.email or "").lower() == bootstrap_email:
         raise HTTPException(status_code=400, detail="Cannot delete the bootstrap superAdmin")
-    await _reassign_matches_to_sentinel(supabase, target_id)
     await supabase.auth.admin.delete_user(target_id)
     logger.info("account deleted: user_id=%s actor_id=%s", target_id, caller["user_id"])
     return {"deleted": target_id}
