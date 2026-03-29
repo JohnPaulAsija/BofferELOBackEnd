@@ -80,6 +80,33 @@ async def test_list_users_excludes_incomplete_profiles(app_client, sync_supabase
         sync_supabase.auth.admin.delete_user(incomplete_id)
 
 
+async def test_list_users_excludes_pending_accounts(app_client, sync_supabase, user1_token):
+    """Users who provided a username at signup but haven't confirmed their email must not appear.
+
+    The profiles trigger fires on auth.users INSERT (before email confirmation), so a pending
+    user with username metadata will have a non-NULL username in profiles — the user list
+    must still exclude them.
+    """
+    if sync_supabase is None:
+        pytest.skip("no test.env — integration tests only")
+    user = sync_supabase.auth.admin.create_user(
+        {
+            "email": "pending_ul@test.com",
+            "password": "TestPassword123!",
+            "email_confirm": False,
+            "user_metadata": {"username": "pending_ul_user"},
+        }
+    )
+    pending_id = str(user.user.id)
+    try:
+        resp = await app_client.get("/users", headers=_bearer(user1_token))
+        assert resp.status_code == 200
+        ids = [u["id"] for u in resp.json()["users"]]
+        assert pending_id not in ids, "Pending (unconfirmed email) user must not appear in user list"
+    finally:
+        sync_supabase.auth.admin.delete_user(pending_id)
+
+
 # ---------------------------------------------------------------------------
 # GET /users/me
 # ---------------------------------------------------------------------------

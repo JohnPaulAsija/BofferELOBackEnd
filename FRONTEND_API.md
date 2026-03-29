@@ -132,19 +132,22 @@ Returns valid values for all four preference fields and available rulesets. Use 
 ```json
 {
   "genders":   ["Male", "Female", "Prefer not to say"],
-  "games":     ["Hearthlight", "Dagorhir"],
   "weapons":   ["One Handed Sword", "Two Handed Sword", "One Handed Spear", "Two Handed Spear", "Bow", "Javelin"],
   "shields":   ["None", "Back", "Hand (grip)", "Hand (strap)", "Arm", "Shoulder"],
   "rule_sets": [
     { "id": "<uuid>", "name": "Dagorhir" },
-    { "id": "<uuid>", "name": "Hearthlight" }
+    { "id": "<uuid>", "name": "Hearthlight" },
+    { "id": "<uuid>", "name": "Belegarth" }
   ]
 }
 ```
 
 - `rule_sets` returns objects with `id` (UUID) and `name` — use the `id` when calling `POST /matches`
+- Use `rule_sets.map(r => r.name)` to populate the **preferred game** dropdown (replaces the removed `games` field)
 - Response is cached server-side for **60 seconds**
 - Values are stored in database lookup tables and can be changed without a code deploy
+
+> **v0.2.0 breaking change:** The `games` field has been removed from this response. Replace any reference to `options.games` with `options.rule_sets.map(r => r.name)`.
 
 ---
 

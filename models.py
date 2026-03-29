@@ -48,7 +48,6 @@ class RuleSetOption(BaseModel):
 
 class OptionsResponse(BaseModel):
     genders:   list[str]
-    games:     list[str]
     weapons:   list[str]
     shields:   list[str]
     rule_sets: list[RuleSetOption]

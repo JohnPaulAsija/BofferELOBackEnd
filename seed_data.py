@@ -32,6 +32,12 @@ def create_test_users(n_users: int = 0, n_admins: int = 0, n_super_admins: int =
         print("No accounts requested. Use --users, --admins, or --superadmins.")
         return []
 
+    ruleset_resp = client.from_("rule_sets").select("name").execute()
+    game_names = [r["name"] for r in ruleset_resp.data]
+    if not game_names:
+        print("No rule sets found in DB.")
+        return []
+
     password = os.getenv("TEST_PASSWORD", "TestPassword123!")
 
     ts = int(time.time())
@@ -56,7 +62,7 @@ def create_test_users(n_users: int = 0, n_admins: int = 0, n_super_admins: int =
             "role_id":         role_id,
             "termsAcceptedAt": datetime.now(timezone.utc).isoformat(),
             "gender":          random.choice(["Male", "Female", "Other"]),
-            "preferredGame":   random.choice(["Hearthlight", "Dagorhir"]),
+            "preferredGame":   random.choice(game_names),
             "preferredWeapon": random.choice(["One Handed Sword", "Two Handed Sword", "One Handed Spear", "Two Handed Spear", "Bow", "Javelin"]),
             "preferredShield": random.choice(["None", "Back", "Hand (grip)", "Hand (strap)", "Arm", "Shoulder"]),
         }).eq("id", user_id).execute()

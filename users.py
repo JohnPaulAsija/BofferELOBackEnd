@@ -130,7 +130,7 @@ async def _apply_preferences(
     if body.gender is not None:
         await _validate_option(supabase, "gender_options", body.gender, "gender")
     if body.preferred_game is not None:
-        await _validate_option(supabase, "game_types", body.preferred_game, "preferred_game")
+        await _validate_option(supabase, "rule_sets", body.preferred_game, "preferred_game")
     if body.preferred_weapon is not None:
         await _validate_option(supabase, "weapon_types", body.preferred_weapon, "preferred_weapon")
     if body.preferred_shield is not None:

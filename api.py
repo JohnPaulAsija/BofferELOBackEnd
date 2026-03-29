@@ -88,13 +88,11 @@ def get_version():
 @cache(expire=60, namespace="options")
 async def get_options(supabase: AsyncClient = Depends(get_supabase)):
     genders   = await supabase.from_("gender_options").select("name").execute()
-    games     = await supabase.from_("game_types").select("name").execute()
     weapons   = await supabase.from_("weapon_types").select("name").execute()
     shields   = await supabase.from_("shield_types").select("name").execute()
     rule_sets = await supabase.from_("rule_sets").select("id, name").execute()
     return {
         "genders":   [r["name"] for r in genders.data],
-        "games":     [r["name"] for r in games.data],
         "weapons":   [r["name"] for r in weapons.data],
         "shields":   [r["name"] for r in shields.data],
         "rule_sets": [{"id": r["id"], "name": r["name"]} for r in rule_sets.data],

@@ -90,6 +90,33 @@ async def test_leaderboard_excludes_incomplete_profiles(app_client, sync_supabas
         sync_supabase.auth.admin.delete_user(incomplete_id)
 
 
+async def test_leaderboard_excludes_pending_accounts(app_client, sync_supabase):
+    """Users who provided a username at signup but haven't confirmed their email must not appear.
+
+    The profiles trigger fires on auth.users INSERT (before email confirmation), so a pending
+    user with username metadata will have a non-NULL username in profiles — the leaderboard
+    must still exclude them.
+    """
+    if sync_supabase is None:
+        pytest.skip("no test.env — integration tests only")
+    user = sync_supabase.auth.admin.create_user(
+        {
+            "email": "pending_lb@test.com",
+            "password": "TestPassword123!",
+            "email_confirm": False,
+            "user_metadata": {"username": "pending_lb_user"},
+        }
+    )
+    pending_id = str(user.user.id)
+    try:
+        response = await app_client.get("/users/top")
+        assert response.status_code == 200
+        ids = [e["id"] for e in response.json()["leaderboard"]]
+        assert pending_id not in ids, "Pending (unconfirmed email) user must not appear in leaderboard"
+    finally:
+        sync_supabase.auth.admin.delete_user(pending_id)
+
+
 # ---------------------------------------------------------------------------
 # GET /matches  (recent confirmed matches)
 # ---------------------------------------------------------------------------

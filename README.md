@@ -76,7 +76,7 @@ The image uses a healthcheck against `GET /health`. Cloud Run sets the `PORT` en
 | `GET` | `/users/top` | Leaderboard — top 100 players by ELO (cached 60 s) |
 | `GET` | `/matches` | Recent confirmed matches (max 100, sorted by confirmed date, cached 60 s) |
 | `GET` | `/matches/{match_id}` | Full details for a single match (any state: pending, confirmed, or rejected) |
-| `GET` | `/options` | Valid values for preference fields (genders, games, weapons, shields) and rule sets (`[{id, name}]`); cached 60 s |
+| `GET` | `/options` | Valid values for preference fields (genders, weapons, shields) and rule sets (`[{id, name}]`); `rule_sets` also drives `preferredGame`; cached 60 s |
 | `GET` | `/users/{user_id}` | Public profile for any player (id, username, elo, wins, losses, preferences) |
 | `GET` | `/users/{user_id}/matches` | Confirmed match history for any player (cursor-paginated) |
 

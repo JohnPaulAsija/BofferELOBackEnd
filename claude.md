@@ -101,7 +101,7 @@ This is a FastAPI server that pulls data from a Supabase backend and exposes it 
 - `GET /` — hello message
 - `GET /health` — health check; verifies both the server and Supabase DB connection are alive; returns `{"status": "ok", "db": "ok"}` with HTTP 200 on success, or HTTP 503 with `{"status": "error", "db": "unreachable"}` if DB is unreachable
 - `GET /version` — returns the API version from `pyproject.toml` (public, no auth required; returns `{"version": "<semver>"}`)
-- `GET /options` — returns valid values for all four preference fields (genders, games, weapons, shields) from lookup tables, plus `rule_sets` as `[{id, name}]` objects from the `rule_sets` table (public, no auth required; cached 60 s, namespace `options`)
+- `GET /options` — returns valid values for preference fields (genders, weapons, shields) from lookup tables, plus `rule_sets` as `[{id, name}]` objects from the `rule_sets` table; `rule_sets` also drives the valid values for the `preferredGame` preference field (public, no auth required; cached 60 s, namespace `options`)
 - `GET /users/top` — leaderboard: top 100 players by ELO (public, no auth required; only includes users with a non-NULL username; cached 60 s, namespace `leaderboard`; cleared on match confirmation)
 - `GET /matches` — recent confirmed matches (public, no auth required; sorted by `confirmedAt` DESC, max 100; cached 60 s, namespace `matches`; cleared on match confirmation)
 - `GET /matches/{match_id}` — full details for a single match by ID (public, no auth required; returns any match state: pending, confirmed, or rejected; 404 if not found)
