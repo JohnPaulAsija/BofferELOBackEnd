@@ -19,7 +19,7 @@ The Supabase `Matches` table is the primary data source. `confirmedAt` being NUL
 
 ## Commands
 
-This project uses `uv` for dependency management (Python 3.10).
+This project uses `uv` for dependency management (Python 3.11).
 
 ```bash
 # Install dependencies
@@ -88,7 +88,7 @@ This is a FastAPI server that pulls data from a Supabase backend and exposes it 
 - `admin.py` — admin/superAdmin routes, `async def`, mounted onto `app` via `APIRouter`; `_require_super_admin` enforces `role_id >= 3`; `_require_admin` enforces `role_id >= 2`; `GET /admin/matches/pending` returns paginated system-wide pending matches (admin+superAdmin); `POST /admin/reset` deletes all matches and non-bootstrap auth users, excluding the `[deleted]` sentinel (test-infrastructure only); seed logic itself is sync via `seed_data.py`
 - `seed_data.py` — test data creation logic (`create_test_users`, `create_test_matches`); used by `admin.py` and runnable standalone via CLI subcommands; ELO formula is inlined (no `elo.py` dependency)
 - `main.py` — starts the uvicorn server
-- `Dockerfile` — production image using `python:3.10-slim` + uv; deps installed in a cached layer before source copy
+- `Dockerfile` — production image using `python:3.11-slim` + uv; deps installed in a cached layer before source copy
 - `.dockerignore` — excludes `.env`, `__pycache__`, `.git`, `.venv`, markdown docs, and `plans/` from the build context
 - `tests/conftest.py` — shared pytest fixtures: session-scoped `app_client` (ASGI transport), `reset_and_seed` (autouse, resets DB + creates test accounts), `sync_supabase` (service-role Supabase sync client for direct DB manipulation in tests), token fixtures (`user1_token` through `super_admin_token`), ID fixtures, and helper functions (`_bearer`, `_decode_jwt_sub`)
 - `tests/test_helpers.py` — unit tests for `helpers.py` (auth resolution logic)
@@ -96,18 +96,19 @@ This is a FastAPI server that pulls data from a Supabase backend and exposes it 
 - `tests/test_public.py` — integration tests for public endpoints (`/`, `/health`, `/options`, `/users/top`, `/matches`, `/matches/{match_id}`, `/users/{user_id}`, `/users/{user_id}/matches`)
 - `tests/test_users.py` — integration tests for authenticated `/users/*` endpoints (`GET /users`, `GET /users/me`, `GET /users/me/matches`, `GET /users/me/matches/unconfirmed`, `PATCH /users/me/preferences`, `PATCH /users/{user_id}/preferences`)
 - `tests/test_account.py` — integration tests for account management endpoints (username change, email change, account deletion); uses sacrificial users for destructive delete tests to avoid breaking session-scoped fixtures
+- `tests/test_unconfirmed.py` — integration tests verifying that unconfirmed (pending email) users are hidden from public profile and match history endpoints; uses sacrificial users created with `email_confirm: False`
 
 **API endpoints:**
 - `GET /` — hello message
 - `GET /health` — health check; verifies both the server and Supabase DB connection are alive; returns `{"status": "ok", "db": "ok"}` with HTTP 200 on success, or HTTP 503 with `{"status": "error", "db": "unreachable"}` if DB is unreachable
 - `GET /version` — returns the API version from `pyproject.toml` (public, no auth required; returns `{"version": "<semver>"}`)
 - `GET /options` — returns valid values for preference fields (genders, weapons, shields) from lookup tables, plus `rule_sets` as `[{id, name}]` objects from the `rule_sets` table; `rule_sets` also drives the valid values for the `preferredGame` preference field (public, no auth required; cached 60 s, namespace `options`)
-- `GET /users/top` — leaderboard: top 100 players by ELO (public, no auth required; only includes users with a non-NULL username; cached 60 s, namespace `leaderboard`; cleared on match confirmation)
+- `GET /users/top` — leaderboard: top 100 players by ELO (public, no auth required; only includes users with a non-NULL username who have confirmed their email; cached 60 s, namespace `leaderboard`; cleared on match confirmation)
 - `GET /matches` — recent confirmed matches (public, no auth required; sorted by `confirmedAt` DESC, max 100; cached 60 s, namespace `matches`; cleared on match confirmation)
 - `GET /matches/{match_id}` — full details for a single match by ID (public, no auth required; returns any match state: pending, confirmed, or rejected; 404 if not found)
-- `GET /users/{user_id}` — public profile for any player: id, username, elo, wins, losses, and optional preference fields (public, no auth required; 404 if user not found)
-- `GET /users/{user_id}/matches` — confirmed match history for any player (public, no auth required; cursor-based pagination via `limit` and `before` query params; returns `matches` + `next_cursor`; 404 if user not found)
-- `GET /users` — list all users except the authenticated user (id + username only); only includes users with a non-NULL username; for populating match-reporting dropdowns (requires `Authorization` header)
+- `GET /users/{user_id}` — public profile for any player: id, username, elo, wins, losses, and optional preference fields (public, no auth required; 404 if user not found or email not confirmed)
+- `GET /users/{user_id}/matches` — confirmed match history for any player (public, no auth required; cursor-based pagination via `limit` and `before` query params; returns `matches` + `next_cursor`; 404 if user not found or email not confirmed)
+- `GET /users` — list all users except the authenticated user (id + username only); only includes users with a non-NULL username who have confirmed their email; for populating match-reporting dropdowns (requires `Authorization` header)
 - `GET /users/me` — look up the authenticated user (requires `Authorization` header)
 - `GET /users/me/matches` — all non-rejected matches for the authenticated user, split into `confirmed` (sorted by `confirmedAt` DESC, max 100) and `unconfirmed` (sorted by `reportedAt` DESC, max 100) lists (requires `Authorization` header)
 - `GET /users/me/matches/unconfirmed` — unconfirmed, non-rejected matches for the authenticated user (requires `Authorization` header)
@@ -226,6 +227,12 @@ The following Postgres functions exist in the database and are called via `clien
 - **`reassign_matches_on_profile_delete()`** — `SECURITY DEFINER` trigger function (`SET search_path = 'public'`) fired by the `before_profile_delete` trigger on `profiles`. First auto-rejects any pending matches where the deleted user is a participant (`winnerId` or `loserId`) by setting `rejectedAt`, `rejectedById`, and `rejectedByName` (to `[deleted]`). Then reassigns all match FK columns (`winnerId`, `loserId`, `reporterId`, `confirmedById`, `rejectedById`) from the deleted user to the `[deleted]` sentinel UUID. Fires automatically during GoTrue's CASCADE delete of `auth.users` → `profiles`. The `search_path` setting is critical: the GoTrue execution context uses an `auth`-only `search_path` — without `SET search_path = 'public'`, the `"Matches"` table reference fails.
 
 When adding new DB-side logic, prefer Postgres functions over read-modify-write patterns in Python for any operation that must be atomic or involves multiple related rows.
+
+## DB Triggers
+
+- **`handle_new_user()`** — `SECURITY DEFINER` trigger function fired `AFTER INSERT ON auth.users` (trigger name: `on_auth_user_created`). Creates the `profiles` row with `id`, `email`, `username` (from `raw_user_meta_data`), `termsAcceptedAt`, preference fields, `elo=1000`, `wins=0`, `losses=0`, and `email_confirmed = (NEW.email_confirmed_at IS NOT NULL)`. Admin-created users with `email_confirm: True` get `email_confirmed = TRUE` immediately.
+- **`sync_email_confirmed_on_update()`** — `SECURITY DEFINER` trigger function fired `AFTER UPDATE ON auth.users` (trigger name: `on_auth_user_email_confirmed`). When `email_confirmed_at` transitions from NULL to non-NULL (user clicks confirmation link), sets `email_confirmed = TRUE` on the corresponding `profiles` row.
+- **`reassign_matches_on_profile_delete()`** — documented in Postgres Functions section above.
 
 ## Database Migrations
 

@@ -237,6 +237,36 @@ Expected: one row.
 
 ---
 
+## Task 5b: Verify Test Fixture Compatibility
+
+After both triggers are in place, confirm that the `reset_and_seed` test fixture (which creates users with `email_confirm: True`) produces profiles with `email_confirmed = TRUE` automatically — no fixture changes needed.
+
+**Step 1: Run the reset and seed**
+
+```
+uv run pytest tests/test_public.py::test_root -v
+```
+
+This triggers the session-scoped `reset_and_seed` fixture.
+
+**Step 2: Verify test accounts have email_confirmed = TRUE**
+
+Via `execute_sql`:
+
+```sql
+SELECT p.id, p.username, p.email_confirmed
+FROM   public.profiles p
+JOIN   auth.users u ON u.id = p.id
+WHERE  u.email_confirmed_at IS NOT NULL
+  AND  p.email_confirmed = FALSE;
+```
+
+Expected: **0 rows**. If any rows appear, the profile-creation trigger (Task 4) is not setting `email_confirmed` correctly for admin-created users with `email_confirm: True`.
+
+**Why this works:** `conftest.py` creates test accounts with `email_confirm: True`, which causes Supabase to set `email_confirmed_at` on the `auth.users` row at creation time. The updated profile-creation trigger (Task 4) reads `NEW.email_confirmed_at IS NOT NULL` and sets `email_confirmed = TRUE` in the INSERT. No fixture changes are required.
+
+---
+
 ## Task 6: Filter `GET /users` by `email_confirmed`
 
 **Files:**

@@ -340,7 +340,7 @@ async def test_prefs_valid_update(app_client, user1_token):
     opts = await app_client.get("/options")
     options = opts.json()
     gender = options["genders"][0]
-    game = options["games"][0]
+    game = options["rule_sets"][0]["name"]
 
     resp = await app_client.patch(
         "/users/me/preferences",

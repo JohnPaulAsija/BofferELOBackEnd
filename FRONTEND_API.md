@@ -68,7 +68,7 @@ The version is read from the project's `pyproject.toml` on each request.
 ---
 
 ### `GET /users/top`
-Returns the top 100 players sorted by ELO descending. No `Authorization` header required.
+Returns the top 100 players sorted by ELO descending. No `Authorization` header required. Excludes users who have not confirmed their email.
 
 **Response (200)**
 ```json
@@ -193,7 +193,7 @@ Returns full details for a single match by ID. Works for any match state (pendin
 ---
 
 ### `GET /users/{user_id}/matches`
-Returns confirmed match history for any player, sorted by `confirmedAt` descending. Uses cursor-based pagination. No `Authorization` header required.
+Returns confirmed match history for any player, sorted by `confirmedAt` descending. Uses cursor-based pagination. No `Authorization` header required. Returns 404 for users who have not confirmed their email.
 
 **Path parameters**
 - `user_id` — UUID of the player
@@ -242,7 +242,7 @@ On the first page, omit `before`. On subsequent pages, pass the `next_cursor` fr
 ---
 
 ### `GET /users/{user_id}`
-Returns public profile stats for any player. No `Authorization` header required.
+Returns public profile stats for any player. No `Authorization` header required. Returns 404 for users who have not confirmed their email.
 
 **Path parameters**
 - `user_id` — UUID of the player
@@ -279,7 +279,7 @@ Returns public profile stats for any player. No `Authorization` header required.
 ## Authenticated Endpoints
 
 ### `GET /users`
-Returns a list of all users except the authenticated user. Intended for populating the winner/loser picker when reporting a match.
+Returns a list of all users except the authenticated user. Intended for populating the winner/loser picker when reporting a match. Excludes users who have not confirmed their email.
 
 **Headers**
 ```

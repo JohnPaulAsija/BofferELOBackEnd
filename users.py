@@ -39,6 +39,7 @@ async def list_users(authorization: str = Header(...), supabase: AsyncClient = D
         .select("id, username")
         .neq("id", user_id)
         .not_.is_("username", "null")
+        .eq("email_confirmed", True)
         .order("username", desc=False)
         .execute()
     )
@@ -53,6 +54,7 @@ async def get_leaderboard(supabase: AsyncClient = Depends(get_supabase)):
         .select("id, username, elo, wins, losses")
         .not_.is_("username", "null")
         .neq("id", DELETED_USER_SENTINEL_ID)
+        .eq("email_confirmed", True)
         .order("elo", desc=True)
         .limit(100)  # intentionally capped — pagination not supported yet
         .execute()
@@ -275,6 +277,7 @@ async def get_user_profile(user_id: uuid.UUID, supabase: AsyncClient = Depends(g
             await supabase.from_("profiles")
             .select("id, username, elo, wins, losses, gender, preferredGame, preferredWeapon, preferredShield")
             .eq("id", str(user_id))
+            .eq("email_confirmed", True)
             .single()
             .execute()
         )
@@ -293,7 +296,7 @@ async def get_user_match_history(
     before: str = Query(default=None),
 ):
     try:
-        profile_resp = await supabase.from_("profiles").select("id").eq("id", str(user_id)).single().execute()
+        profile_resp = await supabase.from_("profiles").select("id").eq("id", str(user_id)).eq("email_confirmed", True).single().execute()
     except APIError:
         raise HTTPException(status_code=404, detail="User not found")
     if not profile_resp.data:

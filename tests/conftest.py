@@ -132,6 +132,44 @@ async def reset_and_seed(app_client):
         result[f"{name}_token"] = sign_in.session.access_token
         result[f"{name}_id"] = uid
 
+    # --- Seed matches so match-dependent tests don't skip ---
+    # Fetch a valid rule_set_id from /options
+    opts_resp = await app_client.get("/options")
+    rule_set_id = opts_resp.json()["rule_sets"][0]["id"]
+
+    user1_id = result["user1_id"]
+    user2_id = result["user2_id"]
+    user3_id = result["user3_id"]
+    sa_tok = result["super_admin_token"]
+    user2_tok = result["user2_token"]
+
+    # Report 3 matches: user1 (winner) vs user2 (loser) — superAdmin reports for any two users
+    to_confirm = []
+    for _ in range(3):
+        r = await app_client.post(
+            "/matches",
+            json={"winner_id": user1_id, "loser_id": user2_id, "rule_set_id": rule_set_id},
+            headers={"Authorization": f"Bearer {sa_tok}"},
+        )
+        if r.status_code == 200:
+            to_confirm.append(r.json()["id"])
+
+    # Confirm them via user2 (loser, not reporter — confirmation is allowed)
+    if to_confirm:
+        await app_client.post(
+            "/matches/confirm",
+            json={"match_ids": to_confirm},
+            headers={"Authorization": f"Bearer {user2_tok}"},
+        )
+
+    # Report 2 unconfirmed matches: user1 (winner) vs user3 (loser) — left pending
+    for _ in range(2):
+        await app_client.post(
+            "/matches",
+            json={"winner_id": user1_id, "loser_id": user3_id, "rule_set_id": rule_set_id},
+            headers={"Authorization": f"Bearer {sa_tok}"},
+        )
+
     return result
 
 

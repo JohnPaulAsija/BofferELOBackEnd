@@ -5,7 +5,7 @@ Backend API for a React Native ELO ranking app for boffer combat games (Dagorhir
 ## Features
 
 - **ELO calculation** — compute and update player ratings after each confirmed match
-- **Rankings** — sorted leaderboard of players by ELO (cached for 60 s)
+- **Rankings** — sorted leaderboard of players by ELO (cached for 60 s); excludes unconfirmed accounts
 - **Match history** — per-player match records
 - **Rule sets** — matches are tagged with a rule set (e.g. Dagorhir, Hearthlight); available rule sets fetched from `/options`
 - **Rate limiting** — write endpoints rate-limited per user (10/min for report, 20/min for confirm/reject; admins exempt)
@@ -13,7 +13,7 @@ Backend API for a React Native ELO ranking app for boffer combat games (Dagorhir
 
 ## Tech Stack
 
-- **Python 3.10+** with [uv](https://docs.astral.sh/uv/) for dependency management
+- **Python 3.11+** with [uv](https://docs.astral.sh/uv/) for dependency management
 - **FastAPI** — REST API framework
 - **Supabase** — database and auth backend
 - **Uvicorn** — ASGI server
@@ -22,7 +22,7 @@ Backend API for a React Native ELO ranking app for boffer combat games (Dagorhir
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - [uv](https://docs.astral.sh/uv/) installed
 
 ### Environment Variables
