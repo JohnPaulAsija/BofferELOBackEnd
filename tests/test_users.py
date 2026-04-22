@@ -340,17 +340,17 @@ async def test_prefs_valid_update(app_client, user1_token):
     opts = await app_client.get("/options")
     options = opts.json()
     gender = options["genders"][0]
-    game = options["rule_sets"][0]["name"]
+    rule_set = options["rule_sets"][0]
 
     resp = await app_client.patch(
         "/users/me/preferences",
-        json={"gender": gender, "preferred_game": game},
+        json={"gender": gender, "preferred_game": rule_set["id"]},
         headers=_bearer(user1_token),
     )
     assert resp.status_code == 200
     data = resp.json()
     assert data["gender"] == gender
-    assert data["preferred_game"] == game
+    assert data["preferred_game"] == rule_set["name"]
 
 
 async def test_prefs_null_clears_field(app_client, user1_token):

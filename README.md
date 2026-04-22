@@ -88,7 +88,7 @@ The image uses a healthcheck against `GET /health`. Cloud Run sets the `PORT` en
 | `GET` | `/users/me` | Get the authenticated user |
 | `GET` | `/users/me/matches` | List all active matches (confirmed + unconfirmed, no rejected) for the authenticated user |
 | `GET` | `/users/me/matches/unconfirmed` | List unconfirmed matches for the authenticated user |
-| `PATCH` | `/users/me/preferences` | Update own preference fields (gender, game, weapon, shield) |
+| `PATCH` | `/users/me/preferences` | Update own preference fields (gender, game, weapon, shield); `preferred_game` takes a `rule_sets` UUID |
 | `PATCH` | `/users/me/username` | Change own username |
 | `PATCH` | `/users/me/email` | Request email change (confirmation email sent) |
 | `DELETE` | `/users/me` | Delete own account (pending matches auto-rejected, confirmed history preserved) |

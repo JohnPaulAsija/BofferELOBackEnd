@@ -142,8 +142,8 @@ Returns valid values for all four preference fields and available rulesets. Use 
 }
 ```
 
-- `rule_sets` returns objects with `id` (UUID) and `name` — use the `id` when calling `POST /matches`
-- Use `rule_sets.map(r => r.name)` to populate the **preferred game** dropdown (replaces the removed `games` field)
+- `rule_sets` returns objects with `id` (UUID) and `name` — use the `id` when calling `POST /matches` or `PATCH /users/me/preferences` (for `preferred_game`)
+- Use `rule_sets.map(r => r.name)` to populate the **preferred game** dropdown label (replaces the removed `games` field); bind each option's value to `id`
 - Response is cached server-side for **60 seconds**
 - Values are stored in database lookup tables and can be changed without a code deploy
 
@@ -422,13 +422,13 @@ Authorization: Bearer <jwt>
 ```json
 {
   "gender":           "Male",
-  "preferred_game":   "Dagorhir",
+  "preferred_game":   "c2c5444f-42d3-4ec3-ace7-8e05fb936eec",
   "preferred_weapon": "Two Handed Sword",
   "preferred_shield": "None"
 }
 ```
 
-All fields are optional and default to `null`. Valid values come from `GET /options`.
+All fields are optional and default to `null`. Valid values for `gender`, `preferred_weapon`, and `preferred_shield` come from `GET /options` as strings. `preferred_game` takes a rule set **UUID** from `options.rule_sets[].id`; the server resolves it to the rule set's name for storage.
 
 **Response (200)**
 ```json
@@ -439,6 +439,8 @@ All fields are optional and default to `null`. Valid values come from `GET /opti
   "preferred_shield": "None"
 }
 ```
+
+`preferred_game` in the response is the resolved rule set **name** (the stored value). To pre-select the dropdown, match this name back to `options.rule_sets[].name`.
 
 **Error codes**
 

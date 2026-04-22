@@ -112,7 +112,7 @@ This is a FastAPI server that pulls data from a Supabase backend and exposes it 
 - `GET /users/me` — look up the authenticated user (requires `Authorization` header)
 - `GET /users/me/matches` — all non-rejected matches for the authenticated user, split into `confirmed` (sorted by `confirmedAt` DESC, max 100) and `unconfirmed` (sorted by `reportedAt` DESC, max 100) lists (requires `Authorization` header)
 - `GET /users/me/matches/unconfirmed` — unconfirmed, non-rejected matches for the authenticated user (requires `Authorization` header)
-- `PATCH /users/me/preferences` — update the caller's own preference fields (gender, preferredGame, preferredWeapon, preferredShield); values validated against lookup tables; returns 422 for invalid values (requires `Authorization` header)
+- `PATCH /users/me/preferences` — update the caller's own preference fields (gender, preferredGame, preferredWeapon, preferredShield); `gender`/`preferredWeapon`/`preferredShield` are validated against lookup tables by name; `preferredGame` accepts a `rule_sets.id` (UUID) which the server resolves to the rule set's name before storing; returns 422 for invalid values (requires `Authorization` header)
 - `PATCH /users/me/username` — change the authenticated user's username; username must be 3–24 characters matching `[a-zA-Z0-9_-]`; 409 if taken (requires `Authorization` header)
 - `PATCH /users/me/email` — request email change; sends Supabase confirmation email to new address; 422 for invalid email (requires `Authorization` header)
 - `DELETE /users/me` — delete own account; match history preserved via `before_profile_delete` DB trigger (reassigns match FKs to sentinel); returns `{"deleted": "<user_id>"}` (requires `Authorization` header)

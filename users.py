@@ -131,8 +131,16 @@ async def _apply_preferences(
 ) -> PreferencesResponse:
     if body.gender is not None:
         await _validate_option(supabase, "gender_options", body.gender, "gender")
+    resolved_game_name = None
     if body.preferred_game is not None:
-        await _validate_option(supabase, "rule_sets", body.preferred_game, "preferred_game")
+        try:
+            uuid.UUID(body.preferred_game)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid value for preferred_game: '{body.preferred_game}'")
+        rs = await supabase.from_("rule_sets").select("name").eq("id", body.preferred_game).execute()
+        if not rs.data:
+            raise HTTPException(status_code=422, detail=f"Invalid value for preferred_game: '{body.preferred_game}'")
+        resolved_game_name = rs.data[0]["name"]
     if body.preferred_weapon is not None:
         await _validate_option(supabase, "weapon_types", body.preferred_weapon, "preferred_weapon")
     if body.preferred_shield is not None:
@@ -140,7 +148,7 @@ async def _apply_preferences(
 
     await supabase.from_("profiles").update({
         "gender":          body.gender,
-        "preferredGame":   body.preferred_game,
+        "preferredGame":   resolved_game_name,
         "preferredWeapon": body.preferred_weapon,
         "preferredShield": body.preferred_shield,
     }).eq("id", target_user_id).execute()
