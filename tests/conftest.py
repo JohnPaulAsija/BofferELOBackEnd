@@ -46,7 +46,14 @@ async def app_client():
 
     Session-scoped so the lifespan (Supabase client + FastAPICache) starts
     once and is reused across all tests.
+
+    Yields None when RUN_INTEGRATION_TESTS is not "1" so that unit tests
+    don't trigger the FastAPI lifespan (which would otherwise crash with
+    KeyError: 'API_URL' when no .env is loaded).
     """
+    if os.environ.get("RUN_INTEGRATION_TESTS") != "1":
+        yield None
+        return
     from api import app, lifespan
     async with lifespan(app):
         async with httpx.AsyncClient(
@@ -68,8 +75,12 @@ async def reset_and_seed(app_client):
     5. Update role_id for elevated accounts (trigger sets all other fields)
     6. Sign in all 5 accounts and return tokens + IDs
 
-    Skips gracefully if test.env vars are missing (unit-test-only runs).
+    Short-circuits when app_client is None (integration tests not opted in)
+    or when SUPER_ADMIN_EMAIL is missing (legacy guard).
     """
+    if app_client is None:
+        return {}
+
     sa_email = os.environ.get("SUPER_ADMIN_EMAIL")
     if not sa_email:
         return {}

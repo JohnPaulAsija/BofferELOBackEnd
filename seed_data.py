@@ -4,7 +4,7 @@ import random
 import time
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
-from initialize import client
+from initialize import create_client
 from helpers import ROLE_MAP
 
 load_dotenv()
@@ -32,6 +32,7 @@ def create_test_users(n_users: int = 0, n_admins: int = 0, n_super_admins: int =
         print("No accounts requested. Use --users, --admins, or --superadmins.")
         return []
 
+    client = create_client()
     ruleset_resp = client.from_("rule_sets").select("name").execute()
     game_names = [r["name"] for r in ruleset_resp.data]
     if not game_names:
@@ -90,6 +91,7 @@ def create_test_matches(n: int = 1, confirmed: bool = False) -> list[dict]:
     Returns:
         List of dicts with keys: id, winner, loser, confirmed
     """
+    client = create_client()
     resp = client.from_("profiles").select("id, username, email, elo, wins, losses").execute()
     profiles = resp.data
 
