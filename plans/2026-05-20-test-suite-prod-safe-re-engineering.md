@@ -23,8 +23,8 @@ can run safely against the production `Boffer_ELO` Supabase project —
 touching only data it created, never deleting anything else, and not requiring
 a persistent privileged test account in prod.
 
-Two concerns are addressed together because they share the same surface area
-(`initialize.py`, `tests/conftest.py`, `admin.py`):
+Three concerns are addressed together because they share the same surface area
+(`initialize.py`, `tests/conftest.py`, `admin.py`, and the env-file layout):
 
 1. **Make the destructive flow non-destructive.** Remove the dependency on
    `POST /admin/reset` and the four fixed `TEST_USER*_EMAIL` env vars. Use
@@ -35,6 +35,14 @@ Two concerns are addressed together because they share the same surface area
    `uv run pytest tests/test_helpers.py tests/test_rate_limit.py`, which the
    docs claim runs standalone. Both unit-only and integration runs benefit
    from making this lazy.
+3. **Collapse `test.env` into `.env`.** Once tests run against prod, the two
+   files would hold the same `API_URL` and service-role key — two copies of
+   the same secret means double the leak surface for zero benefit. Delete
+   `test.env` and `test.env.example` entirely; the app already uses `.env`
+   for its own secrets. Replace the "presence of `test.env`" gate (which
+   today is what makes integration tests skip when absent) with an explicit
+   opt-in env var, `RUN_INTEGRATION_TESTS=1`, so the default `pytest` run
+   stays unit-tests-only even when `.env` is fully populated.
 
 ---
 
@@ -44,6 +52,9 @@ Two concerns are addressed together because they share the same surface area
   need it (`seed_data.py`, the conftest fixture) call `create_client()`
   themselves when they need an instance.
 - `tests/conftest.py`'s `reset_and_seed` fixture:
+  - Loads `.env` (not `test.env` — that file is gone) at session start.
+  - Gates on `RUN_INTEGRATION_TESTS=1`. Unset → skip integration tests
+    cleanly. Set → run them against whatever `API_URL` points to.
   - Generates a per-run namespace `run_id = uuid4().hex[:8]` and uses it to
     build emails like `test_<run_id>_user1@bofferelo-test.invalid`.
   - Tracks every auth user ID and match ID it creates in a session-scoped
@@ -56,9 +67,9 @@ Two concerns are addressed together because they share the same surface area
   only to serve the destructive fixture and is unsafe to ship in any image
   that might point at prod. `seed_users`/`seed_matches` admin endpoints stay
   (they're not destructive).
-- `test.env.example` and the `claude.md` Test Environment section are
-  rewritten to reflect the new model: no fixed test users, no `SUPER_ADMIN_*`
-  vars in `test.env` (the superAdmin is created and destroyed per run).
+- **`test.env` and `test.env.example` are deleted.** All credentials live in
+  `.env` (production single-source-of-truth). The `claude.md` Test
+  Environment section is rewritten to describe the consolidated model.
 
 **Tech stack:** Python 3.11, FastAPI, Supabase (`supabase-py` async +
 service-role sync client), pytest-asyncio. No new dependencies.
@@ -98,28 +109,35 @@ of the plan.
 ## Task 2 — Per-run namespacing in `reset_and_seed`
 
 **Files:**
+- `tests/conftest.py:18` — change `load_dotenv("test.env")` to `load_dotenv()`
+  so `.env` is the single source.
 - `tests/conftest.py:59–174` (rewrite the fixture body)
-- `test.env.example` (drop the four fixed `TEST_USER*_EMAIL` vars and the
-  `SUPER_ADMIN_*` vars; document the new minimal var set)
 
 **Steps:**
 
-1. Replace the four fixed `TEST_USER*_EMAIL` env-var reads with a
+1. At the top of the fixture, gate on the opt-in flag:
+   ```python
+   if os.environ.get("RUN_INTEGRATION_TESTS") != "1":
+       yield {}
+       return
+   ```
+   No env var → skip cleanly, no DB contact, no namespace generation.
+2. Replace the four fixed `TEST_USER*_EMAIL` env-var reads with a
    `run_id = uuid.uuid4().hex[:8]` and synthesize emails like
    `f"test_{run_id}_{role}@bofferelo-test.invalid"`. The `.invalid` TLD is
    reserved by RFC 2606 — Supabase will accept it but it can't accidentally
    email a real user.
-2. Initialize a session registry: `created = {"auth_user_ids": [], "match_ids": []}`.
-3. **Drop the `POST /admin/reset` call entirely.** No deletion of pre-existing
+3. Initialize a session registry: `created = {"auth_user_ids": [], "match_ids": []}`.
+4. **Drop the `POST /admin/reset` call entirely.** No deletion of pre-existing
    data, ever.
-4. Create the 4 test users (3 regular + 1 admin) plus a 5th per-run
+5. Create the 4 test users (3 regular + 1 admin) plus a 5th per-run
    superAdmin (instead of signing into a persistent one). Append every UUID
    to `created["auth_user_ids"]`. Promote the admin user with
    `role_id = 2` and the superAdmin with `role_id = 3` via direct
    service-role writes to `profiles`.
-5. When seeding the 3 confirmed + 2 unconfirmed matches, capture the returned
+6. When seeding the 3 confirmed + 2 unconfirmed matches, capture the returned
    match IDs and append to `created["match_ids"]`.
-6. Convert the fixture from `return result` to `yield result` and add a
+7. Convert the fixture from `return result` to `yield result` and add a
    teardown block:
    ```python
    try:
@@ -135,8 +153,6 @@ of the plan.
    ```
    The existing `before_profile_delete` trigger handles match-FK reassignment
    to the sentinel, so deleting auth users is sufficient for profile cleanup.
-7. Drop `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` from `test.env`. The
-   per-run superAdmin is created from scratch each time.
 
 **Note on the `[deleted]` sentinel user:** the production project already has
 the sentinel UUID profile (`DELETED_USER_SENTINEL_ID` in `helpers.py`). The
@@ -146,13 +162,19 @@ guard before each delete as a belt-and-suspenders.
 
 ---
 
-## Task 3 — Tests that create extra users must self-clean
+## Task 3 — Tests that create extra users must self-clean + replace skip guards
 
 **Files:**
 - `tests/test_unconfirmed.py` — already uses `try/finally` with
   `sync_supabase.auth.admin.delete_user(...)`. Audit for completeness.
 - `tests/test_account.py` — creates sacrificial users for destructive
   delete tests. Audit each one for guaranteed cleanup.
+- `tests/test_public.py`, `tests/test_users.py`, `tests/test_unconfirmed.py`,
+  `tests/test_account.py` — every `pytest.skip("no test.env …")` guard needs
+  to be updated to check `RUN_INTEGRATION_TESTS` instead. The cleanest
+  approach is to centralize this in a single fixture in `conftest.py` (e.g.
+  `integration_only`) that calls `pytest.skip(...)` when the flag is unset,
+  and have integration tests depend on it.
 - Any other test that uses `sync_supabase` to create entities.
 
 **Steps:**
@@ -163,7 +185,13 @@ guard before each delete as a belt-and-suspenders.
    on assertion failure.
 2. Where a test creates a user but doesn't clean up, wrap in `try/finally`
    or convert to a function-scoped fixture with `yield`.
-3. Add a `pytest_sessionfinish` hook in `conftest.py` that emits a warning
+3. Replace every `pytest.skip("no test.env …")` line. Recommended pattern:
+   add an `integration_only` fixture in `conftest.py` that does
+   `if os.environ.get("RUN_INTEGRATION_TESTS") != "1": pytest.skip("integration tests opt-in via RUN_INTEGRATION_TESTS=1")`,
+   then sprinkle it into the integration tests in place of the manual
+   `if sync_supabase is None: pytest.skip(...)` checks. Cleaner and one
+   place to change the gate.
+4. Add a `pytest_sessionfinish` hook in `conftest.py` that emits a warning
    listing any auth users whose email starts with `test_` and matches the
    current `run_id` — a safety net in case the fixture registry missed
    something.
@@ -196,60 +224,89 @@ only). Removing it eliminates a footgun.
 
 ---
 
-## Task 5 — Wire up CI-friendly defaults
+## Task 5 — Delete `test.env*` and consolidate on `.env`
 
 **Files:**
-- `test.env.example`
-- `claude.md`
+- `test.env.example` (DELETE)
+- Any `.env.example` if one exists (verify with `ls -la`); otherwise create
+  one documenting the consolidated var set.
+- `.gitignore:132` — drop the explicit `test.env` line (the file is gone;
+  `.env` is already covered).
+- `README.md`, `claude.md`, `FRONTEND_API.md` — purge every remaining
+  reference to `test.env` and replace with `.env` + `RUN_INTEGRATION_TESTS`.
 
 **Steps:**
 
-1. Document the new minimal `test.env`:
+1. `git rm test.env.example`.
+2. If a `.env.example` doesn't already exist, create one documenting the full
+   consolidated var set:
    ```env
+   # Required (server + integration tests)
    API_URL=https://xzwwpkjfnnmmepuvnelx.supabase.co
    API_KEY_s=<service-role-key-for-prod>
-   TEST_PASSWORD=<any-password>   # used for all per-run test users
+
+   # Optional
+   HOST=0.0.0.0
+   PORT=8000
+   CORS_ORIGINS=                  # comma-separated additional CORS origins
+   TEST_PASSWORD=TestPassword123! # password assigned to per-run test users
+
+   # Integration test opt-in (default: integration tests skip).
+   # Set to 1 ONLY when you want pytest to create + tear down test users
+   # against whatever Supabase project API_URL points at.
+   RUN_INTEGRATION_TESTS=0
    ```
-   No `TEST_USER*_EMAIL`. No `SUPER_ADMIN_*`. Way fewer footguns.
-2. Add a top-of-file warning to `test.env.example` that the service role key
-   in this file is for the **production** Supabase project and must never be
-   checked into version control or shared.
-3. Update `claude.md`'s Test Environment section to describe the per-run
-   namespacing model and remove the "Paused" banner from the
-   doc-only PR landed today.
+3. Add a prominent top-of-file warning to `.env.example` that the service
+   role key is full-access prod credentials — never check in, never share,
+   rotate immediately if leaked.
+4. Remove the `test.env` line from `.gitignore`. `.env` should already be
+   gitignored (verify); if not, add it.
+5. `grep -rn "test\.env" --include="*.md" --include="*.py" .` and update
+   every remaining hit. The conftest's `load_dotenv("test.env")` call from
+   Task 2 is already handled; this step catches the docs.
+6. Update `claude.md`'s Test Environment section to describe the
+   consolidated model: one `.env`, opt-in via `RUN_INTEGRATION_TESTS=1`,
+   per-run namespacing. Remove the "Paused" banner that landed in the
+   doc-only PR.
 
 ---
 
 ## Task 6 — End-to-end verification
 
-1. **Unit-only path:** `uv run pytest tests/test_helpers.py tests/test_rate_limit.py`
-   with no `test.env` — must pass after Task 1.
-2. **No-test-env path:** `uv run pytest` with no `test.env` — integration
-   tests must skip cleanly via the existing `pytest.skip("no test.env …")`
-   guards; unit tests must still pass.
-3. **Full path against prod:** populate `test.env` with prod creds and run
+1. **Unit-only path, no env file:** `uv run pytest tests/test_helpers.py tests/test_rate_limit.py`
+   with no `.env` and no env vars set — must pass after Task 1.
+2. **Default path with `.env` present but no opt-in:** `RUN_INTEGRATION_TESTS`
+   unset → `uv run pytest` runs unit tests, integration tests skip cleanly.
+   This is the default a contributor hits after `cp .env.example .env`.
+3. **Full path against prod:** set `RUN_INTEGRATION_TESTS=1` and
    `uv run pytest`. Before/after the run, verify the prod project's
-   `Matches` row count and `auth.users` count are unchanged outside the
-   `test_<run_id>_` prefix. Spot-check via the Supabase MCP `execute_sql`
-   tool:
+   `Matches` row count and non-test `auth.users` count are unchanged. Spot
+   check via the Supabase MCP `execute_sql` tool:
    ```sql
    SELECT COUNT(*) FROM "Matches";
    SELECT COUNT(*) FROM auth.users WHERE email NOT LIKE 'test_%@bofferelo-test.invalid';
    ```
-4. **Failure-mode test:** intentionally fail one test (e.g. assert False) and
-   confirm teardown still runs — the per-run users and matches must still be
-   deleted.
+4. **Failure-mode test:** with `RUN_INTEGRATION_TESTS=1`, intentionally fail
+   one integration test (e.g. `assert False`) and confirm teardown still
+   runs — the per-run users and matches must still be deleted. Re-run the
+   spot-check SQL.
 5. **Reset endpoint gone:** `grep -rn "/admin/reset" --include="*.py"` returns
    only references in deleted-line context (none).
+6. **No `test.env` references remain:** `grep -rn "test\.env" .` returns no
+   hits in tracked files (the `plans/completed/*` historical files are
+   acceptable since they document a prior state).
 
 ---
 
 ## Risks and open questions
 
-1. **Service-role key in `test.env` is the prod key.** A leaked `test.env`
-   = full prod compromise. Mitigations: `test.env` stays gitignored;
-   `.gitignore` already covers it; document the risk loudly in
-   `test.env.example`.
+1. **One secret file, one leak surface.** `.env` now holds the only copy of
+   the prod service-role key for both the app and the test suite. Mitigations:
+   `.env` stays gitignored (verify in Task 5); document the risk loudly in
+   `.env.example`; rotate the service-role key in the Supabase dashboard
+   immediately if anyone suspects a leak. The opt-in flag means even a
+   leaked `.env` won't auto-run destructive integration tests unless the
+   attacker also flips `RUN_INTEGRATION_TESTS=1`.
 2. **Per-run user creation hits Supabase Auth quota.** Each run creates ~5
    auth users. At a few runs per day that's negligible; in a CI loop it
    could add up. Worth checking the project's auth-user soft cap before
