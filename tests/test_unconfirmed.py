@@ -12,8 +12,6 @@ import pytest
 @pytest.mark.asyncio
 async def test_unconfirmed_user_profile_returns_404(app_client, sync_supabase):
     """Public profile endpoint must return 404 for unconfirmed users."""
-    if sync_supabase is None:
-        pytest.skip("no test.env — integration tests only")
     user = sync_supabase.auth.admin.create_user({
         "email": "pending_profile@test.com",
         "password": "TestPassword123!",
@@ -31,8 +29,6 @@ async def test_unconfirmed_user_profile_returns_404(app_client, sync_supabase):
 @pytest.mark.asyncio
 async def test_unconfirmed_user_match_history_returns_404(app_client, sync_supabase):
     """Public match history endpoint must return 404 for unconfirmed users."""
-    if sync_supabase is None:
-        pytest.skip("no test.env — integration tests only")
     user = sync_supabase.auth.admin.create_user({
         "email": "pending_history@test.com",
         "password": "TestPassword123!",

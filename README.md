@@ -101,7 +101,6 @@ The image uses a healthcheck against `GET /health`. Cloud Run sets the `PORT` en
 | Method | Path | Role required | Description |
 |--------|------|--------------|-------------|
 | `GET` | `/admin/matches/pending` | admin or superAdmin | List all pending (unconfirmed, unrejected) matches system-wide; cursor-paginated |
-| `POST` | `/admin/reset` | superAdmin | Delete all matches and non-bootstrap auth users — test infrastructure only, never call in production |
 | `POST` | `/admin/seed/users` | superAdmin | Create test users |
 | `POST` | `/admin/seed/matches` | superAdmin | Create test matches |
 | `PATCH` | `/users/{user_id}/preferences` | superAdmin | Update any user's preferences |

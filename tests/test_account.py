@@ -13,8 +13,6 @@ Destructive tests (DELETE) use sacrificial users — never session-scoped fixtur
 import uuid
 from datetime import datetime, timezone
 
-import pytest
-
 from tests.conftest import _bearer
 from helpers import DELETED_USER_SENTINEL_ID
 
@@ -208,8 +206,6 @@ async def test_change_email_invalid(app_client, user1_token):
 
 
 async def test_change_email_success(app_client, sync_supabase, user1_token):
-    if sync_supabase is None:
-        pytest.skip("no test.env")
     # Use a sacrificial user so we don't break user1's session
     uid, token, _ = _create_sacrificial_user(sync_supabase, "email_change")
     try:
@@ -255,8 +251,6 @@ async def test_change_user_email_invalid(app_client, super_admin_token, user1_id
 
 
 async def test_change_user_email_success(app_client, sync_supabase, super_admin_token):
-    if sync_supabase is None:
-        pytest.skip("no test.env")
     uid, _, _ = _create_sacrificial_user(sync_supabase, "admin_email")
     try:
         new_email = f"admin_changed_{uuid.uuid4().hex[:8]}@test.com"
@@ -286,8 +280,6 @@ async def test_delete_me_bad_token(app_client):
 
 
 async def test_delete_me_success(app_client, sync_supabase):
-    if sync_supabase is None:
-        pytest.skip("no test.env")
     uid, token, _ = _create_sacrificial_user(sync_supabase, "delete_self")
     resp = await app_client.delete("/users/me", headers=_bearer(token))
     assert resp.status_code == 200
@@ -300,8 +292,6 @@ async def test_delete_me_success(app_client, sync_supabase):
 
 async def test_delete_me_match_history_preserved(app_client, sync_supabase, super_admin_token):
     """After deleting a user, their matches should reference the sentinel."""
-    if sync_supabase is None:
-        pytest.skip("no test.env")
     uid_a, token_a, name_a = _create_sacrificial_user(sync_supabase, "del_hist_a")
     uid_b, token_b, name_b = _create_sacrificial_user(sync_supabase, "del_hist_b")
 
@@ -348,8 +338,6 @@ async def test_delete_me_match_history_preserved(app_client, sync_supabase, supe
 # ---------------------------------------------------------------------------
 
 async def test_delete_user_regular_forbidden(app_client, sync_supabase, user1_token):
-    if sync_supabase is None:
-        pytest.skip("no test.env")
     uid, _, _ = _create_sacrificial_user(sync_supabase, "del_forbidden")
     try:
         resp = await app_client.delete(f"/users/{uid}", headers=_bearer(user1_token))
@@ -359,8 +347,6 @@ async def test_delete_user_regular_forbidden(app_client, sync_supabase, user1_to
 
 
 async def test_delete_user_admin_forbidden(app_client, sync_supabase, admin_token):
-    if sync_supabase is None:
-        pytest.skip("no test.env")
     uid, _, _ = _create_sacrificial_user(sync_supabase, "del_admin_forbid")
     try:
         resp = await app_client.delete(f"/users/{uid}", headers=_bearer(admin_token))
@@ -391,8 +377,6 @@ async def test_delete_user_bootstrap_blocked(app_client, super_admin_token, supe
 
 
 async def test_delete_user_success(app_client, sync_supabase, super_admin_token):
-    if sync_supabase is None:
-        pytest.skip("no test.env")
     uid, _, _ = _create_sacrificial_user(sync_supabase, "del_by_admin")
     resp = await app_client.delete(f"/users/{uid}", headers=_bearer(super_admin_token))
     assert resp.status_code == 200
@@ -400,8 +384,6 @@ async def test_delete_user_success(app_client, sync_supabase, super_admin_token)
 
 
 async def test_delete_user_verify_gone(app_client, sync_supabase, super_admin_token):
-    if sync_supabase is None:
-        pytest.skip("no test.env")
     uid, _, _ = _create_sacrificial_user(sync_supabase, "del_verify_gone")
     await app_client.delete(f"/users/{uid}", headers=_bearer(super_admin_token))
 

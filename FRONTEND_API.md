@@ -1000,32 +1000,6 @@ Authorization: Bearer <superAdmin_jwt>
 
 ---
 
-### `POST /admin/reset`
-**Test infrastructure only — do not call from the frontend or in production.**
-
-Deletes all `Matches` rows and all Supabase auth users (and their profile rows) except the bootstrap superAdmin account identified by the `SUPER_ADMIN_EMAIL` server env var. Historically used by the test suite's `reset_and_seed` fixture to wipe the dedicated test Supabase branch before seeding fresh accounts. **That branch has been deleted; integration tests are paused and this endpoint must not be called against production.** It will be re-enabled when the test suite is re-engineered to operate prod-safely (namespaced test data, no global deletion).
-
-**Headers**
-```
-Authorization: Bearer <superAdmin_jwt>
-```
-
-**Response (200)**
-```json
-{ "reset": true }
-```
-
-**Error codes**
-
-| Code | Condition |
-|------|-----------|
-| 401 | Invalid or expired JWT |
-| 403 | Caller is not a superAdmin |
-| 422 | Missing `Authorization` header |
-| 500 | `SUPER_ADMIN_EMAIL` env var not set on the server (configuration error) |
-
----
-
 ### `DELETE /admin/matches/{match_id}`
 Permanently deletes a match record from the database. Intended for dev/test cleanup — no ELO rollback is performed.
 

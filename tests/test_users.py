@@ -65,8 +65,6 @@ async def test_list_users_sorted_asc(app_client, user1_token):
 
 async def test_list_users_excludes_incomplete_profiles(app_client, sync_supabase, user1_token):
     """Users created without a username in signup metadata (NULL username) must not appear."""
-    if sync_supabase is None:
-        pytest.skip("no test.env — integration tests only")
     user = sync_supabase.auth.admin.create_user(
         {"email": "incomplete_ul@test.com", "password": "TestPassword123!", "email_confirm": True}
     )
@@ -87,8 +85,6 @@ async def test_list_users_excludes_pending_accounts(app_client, sync_supabase, u
     user with username metadata will have a non-NULL username in profiles — the user list
     must still exclude them.
     """
-    if sync_supabase is None:
-        pytest.skip("no test.env — integration tests only")
     user = sync_supabase.auth.admin.create_user(
         {
             "email": "pending_ul@test.com",

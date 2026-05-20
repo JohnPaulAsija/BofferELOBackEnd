@@ -75,8 +75,6 @@ async def test_leaderboard_is_sorted_by_elo_desc(app_client):
 
 async def test_leaderboard_excludes_incomplete_profiles(app_client, sync_supabase):
     """Users who signed up but never completed setup (NULL username) must not appear."""
-    if sync_supabase is None:
-        pytest.skip("no test.env — integration tests only")
     user = sync_supabase.auth.admin.create_user(
         {"email": "incomplete_lb@test.com", "password": "TestPassword123!", "email_confirm": True}
     )
@@ -97,8 +95,6 @@ async def test_leaderboard_excludes_pending_accounts(app_client, sync_supabase):
     user with username metadata will have a non-NULL username in profiles — the leaderboard
     must still exclude them.
     """
-    if sync_supabase is None:
-        pytest.skip("no test.env — integration tests only")
     user = sync_supabase.auth.admin.create_user(
         {
             "email": "pending_lb@test.com",
