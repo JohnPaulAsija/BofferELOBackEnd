@@ -141,13 +141,13 @@ uv run pytest
 # Run only unit tests (no Supabase needed)
 uv run pytest tests/test_helpers.py tests/test_rate_limit.py
 
-# Run only integration tests (requires test.env)
+# Run only integration tests (CURRENTLY PAUSED — see note below)
 uv run pytest tests/test_public.py tests/test_users.py
 ```
 
-Integration tests require a `test.env` file with credentials for a dedicated test Supabase project. See `CLAUDE.md` for the full list of required variables.
+**Integration tests are currently paused.** The dedicated test Supabase branch was deleted to cut cost. The plan is to re-point them at the production project, but only after the suite is re-engineered to be prod-safe — the existing `reset_and_seed` fixture wipes match and auth-user data, which would destroy production data if pointed at prod today. Until that work lands, only unit tests run (`tests/test_helpers.py`, `tests/test_rate_limit.py`). See `CLAUDE.md` for the full list of variables and the historical setup.
 
-The test suite uses pytest-asyncio with session-scoped fixtures. A `reset_and_seed` fixture automatically resets the DB and creates fresh test accounts once per session.
+The test suite uses pytest-asyncio with session-scoped fixtures. The (currently disabled) `reset_and_seed` fixture resets the DB and creates fresh test accounts once per session.
 
 ## Project Structure
 

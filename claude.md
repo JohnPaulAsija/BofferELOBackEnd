@@ -37,13 +37,17 @@ uv run pytest
 # Run only unit tests (no Supabase needed)
 uv run pytest tests/test_helpers.py tests/test_rate_limit.py
 
-# Run only integration tests (requires test.env)
+# Run only integration tests (CURRENTLY PAUSED — see Test Environment below)
 uv run pytest tests/test_public.py tests/test_users.py
 ```
 
 ### Test Environment
 
-Integration tests require a `test.env` file with credentials for a dedicated test Supabase project:
+**Paused.** The dedicated test Supabase branch was deleted to cut cost. The plan is to re-point integration tests at the production project (`Boffer_ELO`), but only after the suite is re-engineered to be prod-safe — `reset_and_seed` currently calls `POST /admin/reset`, which deletes every match and every non-bootstrap auth user, and would destroy production data if run against prod. Until the re-engineering work lands, integration tests should not be run; only unit tests (`tests/test_helpers.py`, `tests/test_rate_limit.py`) are expected to pass.
+
+If `test.env` is absent (or its vars are unset), the integration tests skip cleanly via the existing `pytest.skip("no test.env …")` guards — the unit tests still run.
+
+The variable set below is retained as historical reference and as the shape the re-engineered fixture will likely still need. Do **not** populate it with production credentials and run `pytest`.
 
 ```env
 API_URL=<test-supabase-project-url>
@@ -57,7 +61,7 @@ TEST_ADMIN_EMAIL=<test-admin-email>
 TEST_PASSWORD=<password-for-test-accounts>  # defaults to TestPassword123!
 ```
 
-The `reset_and_seed` fixture (session-scoped, autouse) resets the DB via `POST /admin/reset`, creates fresh test accounts, and provides JWT tokens and user IDs to all integration tests. Unit tests run normally without `test.env` — the fixture detects missing env vars and returns an empty dict.
+For reference: the `reset_and_seed` fixture (session-scoped, autouse) resets the DB via `POST /admin/reset`, creates fresh test accounts, and provides JWT tokens and user IDs to all integration tests. Unit tests run normally without `test.env` — the fixture detects missing env vars and returns an empty dict.
 
 ### Docker
 
@@ -294,4 +298,4 @@ Optional:
 - `PORT` — server port (default `8000`)
 - `CORS_ORIGINS` — comma-separated list of additional allowed CORS origins (e.g. Cloud Run URL, production web domain)
 - `TEST_PASSWORD` — password assigned to all accounts created by `seed_data.py`; used when calling `create_test_users` (via `POST /admin/seed/users` or the CLI); defaults to `"TestPassword123!"` if unset; not needed in production
-- `SUPER_ADMIN_EMAIL` — email of the bootstrap superAdmin account to skip when `POST /admin/reset` deletes auth users; required only when calling that endpoint (comes from `test.env` in test runs)
+- `SUPER_ADMIN_EMAIL` — email of the bootstrap superAdmin account to skip when `POST /admin/reset` deletes auth users; required only when calling that endpoint (historically came from `test.env`; integration tests are currently paused — see the Test Environment section)
