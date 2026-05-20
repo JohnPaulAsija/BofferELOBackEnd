@@ -7,7 +7,7 @@ Integration tests for account management endpoints:
 - DELETE /users/me
 - DELETE /users/{user_id}
 
-Requires a running Supabase instance reachable via test.env.
+Requires RUN_INTEGRATION_TESTS=1 plus API_URL / API_KEY_s in .env.
 Destructive tests (DELETE) use sacrificial users — never session-scoped fixtures.
 """
 import uuid

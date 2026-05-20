@@ -1,7 +1,7 @@
 """
 Integration tests for authenticated /users/* endpoints.
 
-Requires a running Supabase instance reachable via test.env.
+Requires RUN_INTEGRATION_TESTS=1 plus API_URL / API_KEY_s in .env.
 The reset_and_seed fixture (conftest.py) creates fresh test accounts
 and provides session-scoped tokens for each role.
 """

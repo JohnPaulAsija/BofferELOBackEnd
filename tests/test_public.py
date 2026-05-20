@@ -1,7 +1,7 @@
 """
 Integration tests for public (unauthenticated) endpoints.
 
-Requires a running Supabase instance reachable via test.env / .env.
+Requires RUN_INTEGRATION_TESTS=1 plus API_URL / API_KEY_s in .env.
 The app_client fixture starts the full ASGI app in-process, including
 the real lifespan (Supabase async client + FastAPICache).
 """

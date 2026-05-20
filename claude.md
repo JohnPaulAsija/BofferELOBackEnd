@@ -37,31 +37,30 @@ uv run pytest
 # Run only unit tests (no Supabase needed)
 uv run pytest tests/test_helpers.py tests/test_rate_limit.py
 
-# Run only integration tests (CURRENTLY PAUSED — see Test Environment below)
-uv run pytest tests/test_public.py tests/test_users.py
+# Run only integration tests (opt in with RUN_INTEGRATION_TESTS=1)
+RUN_INTEGRATION_TESTS=1 uv run pytest tests/test_public.py tests/test_users.py
 ```
 
 ### Test Environment
 
-**Paused.** The dedicated test Supabase branch was deleted to cut cost. The plan is to re-point integration tests at the production project (`Boffer_ELO`), but only after the suite is re-engineered to be prod-safe — `reset_and_seed` currently calls `POST /admin/reset`, which deletes every match and every non-bootstrap auth user, and would destroy production data if run against prod. Until the re-engineering work lands, integration tests should not be run; only unit tests (`tests/test_helpers.py`, `tests/test_rate_limit.py`) are expected to pass.
+Configuration lives in a single `.env` file (gitignored). Integration tests are gated behind `RUN_INTEGRATION_TESTS=1`; without it, every test outside `tests/test_helpers.py` and `tests/test_rate_limit.py` is skipped at collection time (see `pytest_collection_modifyitems` in `tests/conftest.py`). Default `pytest` therefore runs the unit suite only, even if `.env` holds prod credentials.
 
-If `test.env` is absent (or its vars are unset), the integration tests skip cleanly via the existing `pytest.skip("no test.env …")` guards — the unit tests still run.
+When the gate is on, `reset_and_seed` (session-scoped, autouse):
+- Generates a per-run namespace `run_id = uuid.uuid4().hex[:8]`.
+- Creates 5 test accounts (`user1`, `user2`, `user3`, `admin`, `super_admin`) with emails `test_<run_id>_<role>@bofferelo-test.invalid` — the `.invalid` TLD is reserved by RFC 2606 and can't reach a real inbox.
+- Promotes `admin` and `super_admin` to `role_id` 2 and 3 respectively via direct service-role writes to `profiles`.
+- Seeds 3 confirmed + 2 unconfirmed matches.
+- Tracks every created auth user id and match id in a session registry.
+- On session teardown, deletes only the tracked entities (matches first, then users). The `[deleted]` sentinel id is explicitly skipped. `pytest_sessionfinish` warns if any user namespaced to this run survived teardown.
 
-The variable set below is retained as historical reference and as the shape the re-engineered fixture will likely still need. Do **not** populate it with production credentials and run `pytest`.
+Required env vars are documented in `.env.example`; the integration-test-only ones are:
 
 ```env
-API_URL=<test-supabase-project-url>
-API_KEY_s=<test-supabase-service-role-key>
-SUPER_ADMIN_EMAIL=<bootstrap-superadmin-email>
-SUPER_ADMIN_PASSWORD=<bootstrap-superadmin-password>
-TEST_USER1_EMAIL=<test-user1-email>
-TEST_USER2_EMAIL=<test-user2-email>
-TEST_USER3_EMAIL=<test-user3-email>
-TEST_ADMIN_EMAIL=<test-admin-email>
-TEST_PASSWORD=<password-for-test-accounts>  # defaults to TestPassword123!
+RUN_INTEGRATION_TESTS=1               # default 0 → integration tests skip
+TEST_PASSWORD=TestPassword123!        # password assigned to per-run users (optional)
 ```
 
-For reference: the `reset_and_seed` fixture (session-scoped, autouse) resets the DB via `POST /admin/reset`, creates fresh test accounts, and provides JWT tokens and user IDs to all integration tests. Unit tests run normally without `test.env` — the fixture detects missing env vars and returns an empty dict.
+Prod-safety guarantees: the suite never calls a global delete, never uses fixed emails, never logs in as a persistent privileged account, and never touches data outside its `run_id` namespace.
 
 ### Docker
 

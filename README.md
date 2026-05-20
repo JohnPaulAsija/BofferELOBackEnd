@@ -27,18 +27,14 @@ Backend API for a React Native ELO ranking app for boffer combat games (Dagorhir
 
 ### Environment Variables
 
-Create a `.env` file in the project root:
+Copy `.env.example` to `.env` and fill in real values. The full key list is documented in `.env.example`; the required pair is:
 
 ```env
 API_URL=<your-supabase-project-url>
 API_KEY_s=<your-supabase-service-role-key>
-
-# Optional
-HOST=0.0.0.0
-PORT=8000
-CORS_ORIGINS=https://my-service-xyz.run.app,https://my-app.com
-TEST_PASSWORD=<password for seeded test accounts>  # defaults to TestPassword123! if unset
 ```
+
+`API_KEY_s` is the Supabase **service role** key — treat it like a root password (never commit, never share). `.env` is gitignored.
 
 ### Install & Run
 
@@ -140,13 +136,11 @@ uv run pytest
 # Run only unit tests (no Supabase needed)
 uv run pytest tests/test_helpers.py tests/test_rate_limit.py
 
-# Run only integration tests (CURRENTLY PAUSED — see note below)
-uv run pytest tests/test_public.py tests/test_users.py
+# Run only integration tests (opt in with RUN_INTEGRATION_TESTS=1)
+RUN_INTEGRATION_TESTS=1 uv run pytest tests/test_public.py tests/test_users.py
 ```
 
-**Integration tests are currently paused.** The dedicated test Supabase branch was deleted to cut cost. The plan is to re-point them at the production project, but only after the suite is re-engineered to be prod-safe — the existing `reset_and_seed` fixture wipes match and auth-user data, which would destroy production data if pointed at prod today. Until that work lands, only unit tests run (`tests/test_helpers.py`, `tests/test_rate_limit.py`). See `CLAUDE.md` for the full list of variables and the historical setup.
-
-The test suite uses pytest-asyncio with session-scoped fixtures. The (currently disabled) `reset_and_seed` fixture resets the DB and creates fresh test accounts once per session.
+Integration tests are gated behind `RUN_INTEGRATION_TESTS=1`; without it, the test runner skips every file outside the two unit suites at collection time, so the default `pytest` invocation is safe to run even when `.env` contains production credentials. With the gate on, each session creates a per-run UUID-namespaced set of test users + matches against whatever Supabase project `API_URL` points at, then deletes only those entities on teardown. See `CLAUDE.md` for the full mechanic.
 
 ## Project Structure
 
