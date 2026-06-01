@@ -39,6 +39,12 @@ uv run pytest tests/test_helpers.py tests/test_rate_limit.py
 
 # Run only integration tests (requires test.env)
 uv run pytest tests/test_public.py tests/test_users.py
+
+# Seed demo data — full workflow in scripts/README.md
+uv run python -m scripts.seed_demo all --env-file test.env
+uv run python -m scripts.seed_demo verify --env-file test.env
+uv run python -m scripts.seed_demo matches --env-file test.env   # top-up later
+uv run python -m scripts.seed_demo reset --env-file test.env     # wipe demo data only
 ```
 
 ### Test Environment
@@ -87,6 +93,7 @@ This is a FastAPI server that pulls data from a Supabase backend and exposes it 
 - `matches.py` — match endpoints (`GET /matches`, `POST /matches`, `POST /matches/confirm`, `POST /matches/reject`), all `async def`, mounted onto `app` via `APIRouter`; `report_match` calls the `report_match` Postgres RPC which atomically fetches profiles, calculates ELO, and inserts the match row (eliminates TOCTOU race); `confirm_matches` batch-fetches all requested matches in one round trip then calls `confirm_match_and_update_elo` once per match, clearing `leaderboard` and `matches` caches once after the loop if any succeeded; `reject_matches` follows the same batch pattern using the `reject_match` Postgres RPC; both bulk endpoints accept 1–50 match IDs (`BulkMatchActionRequest`), apply per-match authorization with partial-success semantics, and return `BulkMatchActionResponse`; all three write endpoints are rate-limited via `@limiter.limit()`
 - `admin.py` — admin/superAdmin routes, `async def`, mounted onto `app` via `APIRouter`; `_require_super_admin` enforces `role_id >= 3`; `_require_admin` enforces `role_id >= 2`; `GET /admin/matches/pending` returns paginated system-wide pending matches (admin+superAdmin); `POST /admin/reset` deletes all matches and non-bootstrap auth users, excluding the `[deleted]` sentinel (test-infrastructure only); seed logic itself is sync via `seed_data.py`
 - `seed_data.py` — test data creation logic (`create_test_users`, `create_test_matches`); used by `admin.py` and runnable standalone via CLI subcommands; ELO formula is inlined (no `elo.py` dependency)
+- `scripts/seed_demo.py` — demo data seeder (one-shot CLI tool, NOT used by tests; separate from `seed_data.py` at the root which is test infrastructure); creates up to 174 demo users across 15 themed sets and ~1,740 back-dated matches via the production RPCs; demo data marked by `@demo.boffer.local` email suffix; gender mapping deterministic via `FEMALE_NAMES` set; subcommands: `users`, `matches`, `all`, `reset`, `verify`; `--themes` / `--from` / `--to` / `--count` / `--env-file` / `--yes` flags (all subcommand-level — must come AFTER the subcommand); full workflow doc at `scripts/README.md`; design at `plans/2026-05-13-demo-seed-design.md`
 - `main.py` — starts the uvicorn server
 - `Dockerfile` — production image using `python:3.11-slim` + uv; deps installed in a cached layer before source copy
 - `.dockerignore` — excludes `.env`, `__pycache__`, `.git`, `.venv`, markdown docs, and `plans/` from the build context

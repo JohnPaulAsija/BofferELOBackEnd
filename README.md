@@ -149,6 +149,17 @@ Integration tests require a `test.env` file with credentials for a dedicated tes
 
 The test suite uses pytest-asyncio with session-scoped fixtures. A `reset_and_seed` fixture automatically resets the DB and creates fresh test accounts once per session.
 
+## Demo Data
+
+The repo includes a CLI tool that populates the DB with ~174 themed fake users (Arthurian, LoTR, Biblical, Three Kingdoms, etc.) and ~1,740 back-dated matches so the leaderboard looks organically used. Demo data is identified by the `@demo.boffer.local` email suffix and is cleanly removable.
+
+See [`scripts/README.md`](scripts/README.md) for the recommended workflow, subcommand reference, and safety details. Quick start:
+
+```bash
+uv run python -m scripts.seed_demo all --env-file test.env
+uv run python -m scripts.seed_demo verify --env-file test.env
+```
+
 ## Project Structure
 
 ```
@@ -161,6 +172,10 @@ The test suite uses pytest-asyncio with session-scoped fixtures. A `reset_and_se
 ├── helpers.py       # Shared auth utilities (resolve_token, resolve_user_profile, ROLE_MAP)
 ├── initialize.py    # Supabase client setup (sync + async) and get_supabase dependency
 ├── seed_data.py     # Test data creation (users + matches), CLI subcommands
+├── scripts/         # Operational CLI tools (see scripts/README.md)
+│   ├── __init__.py
+│   ├── README.md       # Workflow guide for the demo seeder
+│   └── seed_demo.py    # Demo data seeder (174 themed users + ~1,740 matches)
 ├── Dockerfile       # Production container image
 ├── .dockerignore    # Docker build context exclusions
 ├── pyproject.toml   # Project metadata and dependencies
