@@ -122,7 +122,7 @@ This is a FastAPI server that pulls data from a Supabase backend and exposes it 
 - `PATCH /users/{user_id}/preferences` — update any user's preferences; superAdmin only (`role_id >= 3`); returns 403 for non-superAdmins, 404 if target user not found (requires `Authorization` header)
 - `PATCH /users/{user_id}/username` — superAdmin changes any user's username; 403 for non-superAdmins, 404 if user not found, 409 if taken (requires `Authorization` header)
 - `PATCH /users/{user_id}/email` — superAdmin changes any user's email (immediate, no confirmation); 403 for non-superAdmins, 422 for invalid email (requires `Authorization` header)
-- `DELETE /users/{user_id}` — superAdmin deletes any account; 400 if target is sentinel or bootstrap superAdmin; 403 for non-superAdmins, 404 if not found (requires `Authorization` header)
+- `DELETE /users/{user_id}` — superAdmin deletes any account; 400 if target is the sentinel; 403 for non-superAdmins, 404 if not found (requires `Authorization` header)
 - `POST /matches` — report a match (body: `{winner_id, loser_id, rule_set_id}`; `rule_set_id` is a required UUID referencing the `rule_sets` table; requires `Authorization` header; regular users must be a participant, admins/superAdmins can report for any two users; ELO snapshot and delta are calculated atomically in the `report_match` Postgres RPC; returns 422 if `rule_set_id` is invalid)
 - `POST /matches/confirm` — confirm 1–50 pending matches (body: `{"match_ids": [...]}`); per-match authorization + partial-success semantics; calls `confirm_match_and_update_elo` Postgres RPC per match; clears `leaderboard`/`matches` caches once if any succeeded; returns `BulkMatchActionResponse` (requires `Authorization` header)
 - `POST /matches/reject` — reject 1–50 pending matches (body: `{"match_ids": [...]}`); per-match authorization + partial-success semantics; calls `reject_match` Postgres RPC per match; no ELO effect; returns `BulkMatchActionResponse` (requires `Authorization` header)
@@ -206,11 +206,11 @@ async def my_endpoint(authorization: str = Header(...), supabase: AsyncClient = 
 - Any authenticated user — deletes their own account (user_id from JWT)
 
 **Delete user authorization** (`DELETE /users/{user_id}`):
-- `role_id >= ROLE_MAP["superAdmin"]` — can delete any user except sentinel and bootstrap superAdmin
+- `role_id >= ROLE_MAP["superAdmin"]` — can delete any user except the sentinel
 - All other roles — `403 Forbidden`
 
 **Error responses:**
-- `400` — invalid request (e.g. winner and loser are the same user, match already confirmed, match already rejected, or attempting to delete sentinel/bootstrap superAdmin)
+- `400` — invalid request (e.g. winner and loser are the same user, match already confirmed, match already rejected, or attempting to delete the sentinel)
 - `401` — invalid or expired JWT, or `Authorization` header not in `Bearer <token>` format
 - `403` — valid JWT but insufficient role
 - `404` — valid JWT but no profile or match found
@@ -296,4 +296,3 @@ Optional:
 - `PORT` — server port (default `8000`)
 - `CORS_ORIGINS` — comma-separated list of additional allowed CORS origins (e.g. Cloud Run URL, production web domain)
 - `TEST_PASSWORD` — password assigned to all accounts created by `seed_data.py`; used when calling `create_test_users` (via `POST /admin/seed/users` or the CLI); defaults to `"TestPassword123!"` if unset; not needed in production
-- `SUPER_ADMIN_EMAIL` — email of the bootstrap superAdmin account; used by `DELETE /users/{user_id}` to refuse deletion of the bootstrap account (`users.py`); required if any superAdmin endpoint that could target the bootstrap account is exercised

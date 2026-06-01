@@ -42,22 +42,26 @@ def pytest_collection_modifyitems(config, items):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Warn if any test users namespaced to this run survived teardown.
+    """Warn if any test-created users survived teardown.
 
-    Best-effort sanity check — the per-run UUID prefix keeps collisions
-    with prod users effectively impossible, but this catches fixture bugs
-    that drop entries from the cleanup registry.
+    Best-effort sanity check. Catches two classes of leak: the fixture's
+    own per-run namespaced users (`@bofferelo-test.invalid`) and the
+    sacrificial users individual tests create. Both use reserved/test-only
+    domains, so any survivor in those domains is a teardown bug — it is never
+    a real production account.
     """
     if os.environ.get("RUN_INTEGRATION_TESTS") != "1":
         return
     run_id = getattr(session, "_bofferelo_test_run_id", None)
-    if not run_id:
-        return
     try:
         from initialize import create_client
         client = create_client()
         users = client.auth.admin.list_users()
-        leaked = [u.email for u in users if (u.email or "").startswith(f"test_{run_id}_")]
+        leaked = [
+            u.email for u in users
+            if (u.email or "").endswith("@bofferelo-test.invalid")
+            or (u.email or "").endswith("@test.com")
+        ]
         if leaked:
             print(f"\nWARNING: test run {run_id} leaked {len(leaked)} user(s): {leaked}")
     except Exception as e:
@@ -213,15 +217,27 @@ async def reset_and_seed(app_client, request):
 
         yield result
     finally:
-        # Teardown: delete only what this run created. Matches first (FK refs profiles).
+        # Teardown. Matches must be removed BEFORE users: the
+        # before_profile_delete trigger PRESERVES matches by reassigning their
+        # FK columns to the sentinel, so any match still referencing a per-run
+        # user at user-deletion time would otherwise survive forever. We delete
+        # matches by membership in the per-run user set (winnerId/loserId/
+        # reporterId) — this covers matches that individual tests created, not
+        # just the ones this fixture reported and tracked in the registry.
+        live_user_ids = [u for u in created["auth_user_ids"] if u != DELETED_USER_SENTINEL_ID]
         for mid in created["match_ids"]:
             try:
                 sync_client.from_("Matches").delete().eq("id", mid).execute()
             except Exception:
                 pass  # best-effort
-        for uid in created["auth_user_ids"]:
-            if uid == DELETED_USER_SENTINEL_ID:
-                continue  # never delete the sentinel, even by accident
+        for col in ("winnerId", "loserId", "reporterId"):
+            if not live_user_ids:
+                break
+            try:
+                sync_client.from_("Matches").delete().in_(col, live_user_ids).execute()
+            except Exception:
+                pass  # best-effort
+        for uid in live_user_ids:
             try:
                 sync_client.auth.admin.delete_user(uid)
             except Exception:

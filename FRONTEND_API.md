@@ -641,7 +641,7 @@ Authorization: Bearer <superAdmin_jwt>
 ---
 
 ### `DELETE /users/{user_id}`
-Delete any user's account. **superAdmin only** (`role_id = 3`). Any pending matches where the user is a participant are automatically rejected. Confirmed match history is preserved via the sentinel. Cannot delete the system sentinel user or the bootstrap superAdmin.
+Delete any user's account. **superAdmin only** (`role_id = 3`). Any pending matches where the user is a participant are automatically rejected. Confirmed match history is preserved via the sentinel. Cannot delete the system sentinel user.
 
 **Headers**
 ```
@@ -662,7 +662,7 @@ Authorization: Bearer <superAdmin_jwt>
 
 | Code | Condition |
 |------|-----------|
-| 400  | Target is the system sentinel user or the bootstrap superAdmin |
+| 400  | Target is the system sentinel user |
 | 401  | Invalid or expired JWT |
 | 403  | Caller is not a superAdmin |
 | 404  | Target user not found |

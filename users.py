@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi_cache.decorator import cache
@@ -266,13 +265,10 @@ async def delete_user(user_id: uuid.UUID, authorization: str = Header(...), supa
     target_id = str(user_id)
     if target_id == DELETED_USER_SENTINEL_ID:
         raise HTTPException(status_code=400, detail="Cannot delete the system sentinel user")
-    bootstrap_email = os.environ.get("SUPER_ADMIN_EMAIL", "").lower()
     try:
-        target_user = await supabase.auth.admin.get_user_by_id(target_id)
+        await supabase.auth.admin.get_user_by_id(target_id)
     except Exception:
         raise HTTPException(status_code=404, detail="User not found")
-    if (target_user.user.email or "").lower() == bootstrap_email:
-        raise HTTPException(status_code=400, detail="Cannot delete the bootstrap superAdmin")
     await supabase.auth.admin.delete_user(target_id)
     logger.info("account deleted: user_id=%s actor_id=%s", target_id, caller["user_id"])
     return {"deleted": target_id}

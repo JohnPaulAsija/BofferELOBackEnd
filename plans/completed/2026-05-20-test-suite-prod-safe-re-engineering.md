@@ -5,9 +5,42 @@
 > live production Supabase project (`Boffer_ELO`, ref `xzwwpkjfnnmmepuvnelx`),
 > so each task must land behind a careful review of what data it could touch.
 
-**Status:** Not started. Captured as a follow-up to the deletion of the
-dedicated test Supabase branch (see commit `docs: reflect deletion of Supabase
-test branch and pause integration tests`).
+**Status:** Implemented and **verified against prod (`Boffer_ELO`) on 2026-06-01.**
+Tasks 1–5 landed in commits `Make Supabase client init lazy…`,
+`Re-engineer integration test suite for prod safety; remove /admin/reset`, and
+`Consolidate test.env into .env…`. Task 6 verification surfaced real defects
+that were then fixed (see Verification log below). Final state: full suite
+**119 passed, 0 failed** against prod; `Matches` (1,771) and `auth.users` (197)
+counts unchanged before/after the run, including a teardown-under-failure run.
+
+### Verification log (2026-06-01)
+
+The first full prod run was **not** all-green — it exposed defects the remote
+implementor could not have caught without prod credentials:
+
+1. **Dead bootstrap guard + obsolete test.** Task 4 retired the
+   `SUPER_ADMIN_EMAIL` bootstrap-superAdmin concept, but `DELETE /users/{user_id}`
+   (`users.py`) still held the now-unreachable guard, and
+   `test_delete_user_bootstrap_blocked` still asserted a 400 block. With
+   `SUPER_ADMIN_EMAIL` unset the guard never fired, so the test **deleted the
+   per-run superAdmin mid-session**, invalidating `super_admin_token` and
+   cascading into 5 failures. **Fix (per user decision — retire fully):** removed
+   the guard and `import os` from `users.py`, deleted the obsolete test, and
+   purged bootstrap-superAdmin references from `claude.md`, `FRONTEND_API.md`,
+   and `.env.example`.
+2. **Sacrificial-user teardown gap.** `test_delete_user_success` /
+   `test_delete_user_verify_gone` relied on the (broken) DELETE endpoint to
+   remove their own users — no `try/finally`. **Fix:** added `try/finally`
+   cleanup; switched `_create_sacrificial_user` to the reserved
+   `@bofferelo-test.invalid` domain; broadened the `pytest_sessionfinish`
+   leak-check to flag any `@bofferelo-test.invalid`/`@test.com` survivor.
+3. **Untracked match leak.** Matches created by individual tests
+   (`test_report_match_with_rule_set_id`, `test_delete_me_match_history_preserved`)
+   were preserved against the sentinel by the `before_profile_delete` trigger and
+   never cleaned up — the fixture only deleted matches in its own registry.
+   **Fix:** the fixture teardown now deletes matches by membership in the per-run
+   user set (winnerId/loserId/reporterId) *before* deleting users; both tests
+   also clean up their own match.
 
 ---
 

@@ -287,7 +287,7 @@ async def test_report_match_invalid_rule_set_id(app_client, user1_token, user1_i
     assert resp.status_code == 422
 
 
-async def test_report_match_with_rule_set_id(app_client, user1_token, user1_id, user2_id):
+async def test_report_match_with_rule_set_id(app_client, sync_supabase, user1_token, user1_id, user2_id):
     # Fetch a valid ruleset ID from /options
     opts = await app_client.get("/options")
     rule_set_id = opts.json()["rule_sets"][0]["id"]
@@ -297,6 +297,16 @@ async def test_report_match_with_rule_set_id(app_client, user1_token, user1_id, 
         json={"winner_id": user1_id, "loser_id": user2_id, "rule_set_id": rule_set_id},
         headers={"Authorization": f"Bearer {user1_token}"},
     )
-    assert resp.status_code == 201
-    match = resp.json()["match"]
-    assert match["ruleSetId"] == rule_set_id
+    match = resp.json().get("match") if resp.status_code == 201 else None
+    try:
+        assert resp.status_code == 201
+        assert match["ruleSetId"] == rule_set_id
+    finally:
+        # This test creates a real pending match; delete it so it doesn't
+        # outlive the run (the session fixture would otherwise sweep it, but
+        # cleaning up here keeps the test self-contained).
+        if match:
+            try:
+                sync_supabase.from_("Matches").delete().eq("id", match["id"]).execute()
+            except Exception:
+                pass

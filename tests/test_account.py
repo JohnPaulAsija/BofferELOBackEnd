@@ -20,7 +20,7 @@ from helpers import DELETED_USER_SENTINEL_ID
 def _create_sacrificial_user(sync_supabase, email_prefix="sacrifice"):
     """Create a test user with a complete profile and return (user_id, token, username)."""
     from initialize import create_client
-    email = f"{email_prefix}_{uuid.uuid4().hex[:8]}@test.com"
+    email = f"{email_prefix}_{uuid.uuid4().hex[:8]}@bofferelo-test.invalid"
     password = "TestPassword123!"
     user_resp = sync_supabase.auth.admin.create_user(
         {"email": email, "password": password, "email_confirm": True}
@@ -295,6 +295,7 @@ async def test_delete_me_match_history_preserved(app_client, sync_supabase, supe
     uid_a, token_a, name_a = _create_sacrificial_user(sync_supabase, "del_hist_a")
     uid_b, token_b, name_b = _create_sacrificial_user(sync_supabase, "del_hist_b")
 
+    match_id = None
     try:
         # Report a match: A beats B (use superAdmin to report for any two)
         opts = await app_client.get("/options")
@@ -329,6 +330,13 @@ async def test_delete_me_match_history_preserved(app_client, sync_supabase, supe
         assert match_data["winnerId"] == DELETED_USER_SENTINEL_ID
         assert match_data["winnerName"] == original_winner_name
     finally:
+        # The trigger preserves this match against the sentinel after the users
+        # are gone; delete it explicitly so it doesn't outlive the test run.
+        if match_id is not None:
+            try:
+                sync_supabase.from_("Matches").delete().eq("id", match_id).execute()
+            except Exception:
+                pass
         # Clean up user B (user A already deleted)
         sync_supabase.auth.admin.delete_user(uid_b)
 
@@ -369,23 +377,30 @@ async def test_delete_user_sentinel_blocked(app_client, super_admin_token):
     assert resp.status_code == 400
 
 
-async def test_delete_user_bootstrap_blocked(app_client, super_admin_token, super_admin_id):
-    resp = await app_client.delete(
-        f"/users/{super_admin_id}", headers=_bearer(super_admin_token)
-    )
-    assert resp.status_code == 400
-
-
 async def test_delete_user_success(app_client, sync_supabase, super_admin_token):
     uid, _, _ = _create_sacrificial_user(sync_supabase, "del_by_admin")
-    resp = await app_client.delete(f"/users/{uid}", headers=_bearer(super_admin_token))
-    assert resp.status_code == 200
-    assert resp.json()["deleted"] == uid
+    try:
+        resp = await app_client.delete(f"/users/{uid}", headers=_bearer(super_admin_token))
+        assert resp.status_code == 200
+        assert resp.json()["deleted"] == uid
+    finally:
+        # The endpoint deletes the user on success; this guards against a leak
+        # if the assertions above fail before/without the deletion happening.
+        try:
+            sync_supabase.auth.admin.delete_user(uid)
+        except Exception:
+            pass
 
 
 async def test_delete_user_verify_gone(app_client, sync_supabase, super_admin_token):
     uid, _, _ = _create_sacrificial_user(sync_supabase, "del_verify_gone")
-    await app_client.delete(f"/users/{uid}", headers=_bearer(super_admin_token))
+    try:
+        await app_client.delete(f"/users/{uid}", headers=_bearer(super_admin_token))
 
-    profile_resp = await app_client.get(f"/users/{uid}")
-    assert profile_resp.status_code == 404
+        profile_resp = await app_client.get(f"/users/{uid}")
+        assert profile_resp.status_code == 404
+    finally:
+        try:
+            sync_supabase.auth.admin.delete_user(uid)
+        except Exception:
+            pass
