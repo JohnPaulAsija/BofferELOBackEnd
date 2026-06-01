@@ -641,7 +641,7 @@ Authorization: Bearer <superAdmin_jwt>
 ---
 
 ### `DELETE /users/{user_id}`
-Delete any user's account. **superAdmin only** (`role_id = 3`). Any pending matches where the user is a participant are automatically rejected. Confirmed match history is preserved via the sentinel. Cannot delete the system sentinel user or the bootstrap superAdmin.
+Delete any user's account. **superAdmin only** (`role_id = 3`). Any pending matches where the user is a participant are automatically rejected. Confirmed match history is preserved via the sentinel. Cannot delete the system sentinel user.
 
 **Headers**
 ```
@@ -662,7 +662,7 @@ Authorization: Bearer <superAdmin_jwt>
 
 | Code | Condition |
 |------|-----------|
-| 400  | Target is the system sentinel user or the bootstrap superAdmin |
+| 400  | Target is the system sentinel user |
 | 401  | Invalid or expired JWT |
 | 403  | Caller is not a superAdmin |
 | 404  | Target user not found |
@@ -997,32 +997,6 @@ Authorization: Bearer <superAdmin_jwt>
   "created": [ /* array of created match objects */ ]
 }
 ```
-
----
-
-### `POST /admin/reset`
-**Test infrastructure only — do not call from the frontend or in production.**
-
-Deletes all `Matches` rows and all Supabase auth users (and their profile rows) except the bootstrap superAdmin account identified by the `SUPER_ADMIN_EMAIL` server env var. Used by the test suite's `reset_and_seed` fixture to wipe the test Supabase project before seeding fresh accounts.
-
-**Headers**
-```
-Authorization: Bearer <superAdmin_jwt>
-```
-
-**Response (200)**
-```json
-{ "reset": true }
-```
-
-**Error codes**
-
-| Code | Condition |
-|------|-----------|
-| 401 | Invalid or expired JWT |
-| 403 | Caller is not a superAdmin |
-| 422 | Missing `Authorization` header |
-| 500 | `SUPER_ADMIN_EMAIL` env var not set on the server (configuration error) |
 
 ---
 

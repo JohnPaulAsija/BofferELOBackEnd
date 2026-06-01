@@ -27,18 +27,14 @@ Backend API for a React Native ELO ranking app for boffer combat games (Dagorhir
 
 ### Environment Variables
 
-Create a `.env` file in the project root:
+Copy `.env.example` to `.env` and fill in real values. The full key list is documented in `.env.example`; the required pair is:
 
 ```env
 API_URL=<your-supabase-project-url>
 API_KEY_s=<your-supabase-service-role-key>
-
-# Optional
-HOST=0.0.0.0
-PORT=8000
-CORS_ORIGINS=https://my-service-xyz.run.app,https://my-app.com
-TEST_PASSWORD=<password for seeded test accounts>  # defaults to TestPassword123! if unset
 ```
+
+`API_KEY_s` is the Supabase **service role** key — treat it like a root password (never commit, never share). `.env` is gitignored.
 
 ### Install & Run
 
@@ -101,7 +97,6 @@ The image uses a healthcheck against `GET /health`. Cloud Run sets the `PORT` en
 | Method | Path | Role required | Description |
 |--------|------|--------------|-------------|
 | `GET` | `/admin/matches/pending` | admin or superAdmin | List all pending (unconfirmed, unrejected) matches system-wide; cursor-paginated |
-| `POST` | `/admin/reset` | superAdmin | Delete all matches and non-bootstrap auth users — test infrastructure only, never call in production |
 | `POST` | `/admin/seed/users` | superAdmin | Create test users |
 | `POST` | `/admin/seed/matches` | superAdmin | Create test matches |
 | `PATCH` | `/users/{user_id}/preferences` | superAdmin | Update any user's preferences |
@@ -141,13 +136,11 @@ uv run pytest
 # Run only unit tests (no Supabase needed)
 uv run pytest tests/test_helpers.py tests/test_rate_limit.py
 
-# Run only integration tests (requires test.env)
-uv run pytest tests/test_public.py tests/test_users.py
+# Run only integration tests (opt in with RUN_INTEGRATION_TESTS=1)
+RUN_INTEGRATION_TESTS=1 uv run pytest tests/test_public.py tests/test_users.py
 ```
 
-Integration tests require a `test.env` file with credentials for a dedicated test Supabase project. See `CLAUDE.md` for the full list of required variables.
-
-The test suite uses pytest-asyncio with session-scoped fixtures. A `reset_and_seed` fixture automatically resets the DB and creates fresh test accounts once per session.
+Integration tests are gated behind `RUN_INTEGRATION_TESTS=1`; without it, the test runner skips every file outside the two unit suites at collection time, so the default `pytest` invocation is safe to run even when `.env` contains production credentials. With the gate on, each session creates a per-run UUID-namespaced set of test users + matches against whatever Supabase project `API_URL` points at, then deletes only those entities on teardown. See `CLAUDE.md` for the full mechanic.
 
 ## Demo Data
 

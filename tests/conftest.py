@@ -1,21 +1,71 @@
 """
 Shared pytest fixtures.
 
-Phase 1: `app_client` (ASGI transport).
-Phase 3: `reset_and_seed` (session-scoped DB reset + account creation),
-         token/ID fixtures, and helper functions.
+Integration tests opt in via RUN_INTEGRATION_TESTS=1; without it,
+pytest_collection_modifyitems below skips every test file other than the
+unit-test files. The reset_and_seed fixture creates per-run UUID-namespaced
+test users and matches against whatever Supabase project API_URL points
+at, then surgically deletes only the entities it created in teardown.
+
+Never calls POST /admin/reset. Never touches data it did not create.
 """
 import os
 import base64
 import json
+import uuid
 
 import httpx
+import pytest
 import pytest_asyncio
 from dotenv import load_dotenv
 
-# Load test.env so integration tests can reach the real Supabase instance.
-# Falls back silently if the file doesn't exist (unit tests don't need it).
-load_dotenv("test.env")
+# Single env source: .env. RUN_INTEGRATION_TESTS=1 inside it (or in the
+# shell environment) is what unlocks the integration suite.
+load_dotenv()
+
+_UNIT_TEST_FILES = {"test_helpers.py", "test_rate_limit.py"}
+_INTEGRATION_SKIP_REASON = "integration tests opt-in via RUN_INTEGRATION_TESTS=1"
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip every integration test at collection time unless explicitly opted in.
+
+    Unit-test files are identified by name; everything else is treated as
+    integration. Keeps the default `pytest` run cheap and prod-safe.
+    """
+    if os.environ.get("RUN_INTEGRATION_TESTS") == "1":
+        return
+    skip_marker = pytest.mark.skip(reason=_INTEGRATION_SKIP_REASON)
+    for item in items:
+        if os.path.basename(str(item.fspath)) not in _UNIT_TEST_FILES:
+            item.add_marker(skip_marker)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Warn if any test-created users survived teardown.
+
+    Best-effort sanity check. Catches two classes of leak: the fixture's
+    own per-run namespaced users (`@bofferelo-test.invalid`) and the
+    sacrificial users individual tests create. Both use reserved/test-only
+    domains, so any survivor in those domains is a teardown bug — it is never
+    a real production account.
+    """
+    if os.environ.get("RUN_INTEGRATION_TESTS") != "1":
+        return
+    run_id = getattr(session, "_bofferelo_test_run_id", None)
+    try:
+        from initialize import create_client
+        client = create_client()
+        users = client.auth.admin.list_users()
+        leaked = [
+            u.email for u in users
+            if (u.email or "").endswith("@bofferelo-test.invalid")
+            or (u.email or "").endswith("@test.com")
+        ]
+        if leaked:
+            print(f"\nWARNING: test run {run_id} leaked {len(leaked)} user(s): {leaked}")
+    except Exception as e:
+        print(f"\nWARNING: post-run leak check failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -44,9 +94,15 @@ async def app_client():
     """
     An httpx.AsyncClient that talks to the FastAPI app in-process via ASGI.
 
-    Session-scoped so the lifespan (Supabase client + FastAPICache) starts
-    once and is reused across all tests.
+    Yields None when RUN_INTEGRATION_TESTS is not "1" so that unit tests
+    don't trigger the FastAPI lifespan (which would otherwise crash with
+    KeyError: 'API_URL' when no .env is loaded). The collection hook
+    above generally prevents integration tests from being collected when
+    the gate is off, but this is belt-and-suspenders.
     """
+    if os.environ.get("RUN_INTEGRATION_TESTS") != "1":
+        yield None
+        return
     from api import app, lifespan
     async with lifespan(app):
         async with httpx.AsyncClient(
@@ -57,121 +113,135 @@ async def app_client():
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
-async def reset_and_seed(app_client):
+async def reset_and_seed(app_client, request):
     """
-    Reset the test DB and create fresh test accounts once per session.
+    Create a per-run set of test users + matches against the live Supabase
+    project, surgically delete them on session teardown. No POST /admin/reset
+    call, no fixed emails, no data outside this run's namespace is touched.
 
-    1. Sign in as bootstrap superAdmin
-    2. POST /admin/reset  (delete all matches + non-bootstrap auth users)
-    3. Ensure superAdmin profile has valid fields
-    4. Create 4 test accounts (3 users + 1 admin)
-    5. Update role_id for elevated accounts (trigger sets all other fields)
-    6. Sign in all 5 accounts and return tokens + IDs
+    The per-run namespace is `run_id = uuid.uuid4().hex[:8]`; emails are
+    `test_<run_id>_<role>@bofferelo-test.invalid` (RFC 2606 reserved TLD).
 
-    Skips gracefully if test.env vars are missing (unit-test-only runs).
+    Short-circuits when app_client is None (gate off → integration tests
+    not opted in).
     """
-    sa_email = os.environ.get("SUPER_ADMIN_EMAIL")
-    if not sa_email:
-        return {}
+    if app_client is None:
+        yield {}
+        return
 
     from initialize import create_client
+    from helpers import DELETED_USER_SENTINEL_ID
 
     sync_client = create_client()
-
-    sa_email = os.environ["SUPER_ADMIN_EMAIL"]
-    sa_password = os.environ["SUPER_ADMIN_PASSWORD"]
+    run_id = uuid.uuid4().hex[:8]
+    request.session._bofferelo_test_run_id = run_id  # surfaced to pytest_sessionfinish
     test_password = os.environ.get("TEST_PASSWORD", "TestPassword123!")
 
-    # Sign in superAdmin via a throwaway client to get the JWT
-    # without tainting the service-role client's auth state.
-    sign_in_client = create_client()
-    sa_auth = sign_in_client.auth.sign_in_with_password(
-        {"email": sa_email, "password": sa_password}
-    )
-    sa_token = sa_auth.session.access_token
-    sa_id = sa_auth.user.id
+    # Registry of everything this run creates — only these IDs are deleted on teardown.
+    created = {"auth_user_ids": [], "match_ids": []}
 
-    resp = await app_client.post(
-        "/admin/reset", headers={"Authorization": f"Bearer {sa_token}"}
-    )
-    assert resp.status_code == 200, f"reset failed: {resp.text}"
-
-    # Ensure superAdmin profile has valid numeric fields
-    sync_client.from_("profiles").update(
-        {"elo": 1000, "wins": 0, "losses": 0}
-    ).eq("id", sa_id).is_("wins", "null").execute()
-
-    # Create 4 test accounts (sync_client still has service-role auth)
+    # name → role_id. role_id 1 = user, 2 = admin, 3 = superAdmin.
     accounts = [
-        ("user1", os.environ["TEST_USER1_EMAIL"], 1),
-        ("user2", os.environ["TEST_USER2_EMAIL"], 1),
-        ("user3", os.environ["TEST_USER3_EMAIL"], 1),
-        ("admin", os.environ["TEST_ADMIN_EMAIL"], 2),
+        ("user1", 1),
+        ("user2", 1),
+        ("user3", 1),
+        ("admin", 2),
+        ("super_admin", 3),
     ]
-    result = {"super_admin_token": sa_token, "super_admin_id": sa_id}
+    result = {}
 
-    for name, email, role_id in accounts:
-        username = email.split("@")[0]
-        user_resp = sync_client.auth.admin.create_user({
-            "email": email,
-            "password": test_password,
-            "email_confirm": True,
-            "user_metadata": {"username": username},
-        })
-        uid = user_resp.user.id
+    try:
+        for name, role_id in accounts:
+            email = f"test_{run_id}_{name}@bofferelo-test.invalid"
+            username = f"test_{run_id}_{name}"
+            user_resp = sync_client.auth.admin.create_user({
+                "email": email,
+                "password": test_password,
+                "email_confirm": True,
+                "user_metadata": {"username": username},
+            })
+            uid = user_resp.user.id
+            created["auth_user_ids"].append(uid)
 
-        # Trigger sets username, termsAcceptedAt, elo=1000, wins=0, losses=0.
-        # Only update role_id for elevated roles (trigger always defaults to 1).
-        if role_id != 1:
-            sync_client.from_("profiles").update({"role_id": role_id}).eq("id", uid).execute()
+            # The on_auth_user_created trigger seeds username, termsAcceptedAt,
+            # elo=1000, wins=0, losses=0, role_id=1. Only need to upgrade role
+            # for admin/superAdmin.
+            if role_id != 1:
+                sync_client.from_("profiles").update({"role_id": role_id}).eq("id", uid).execute()
 
-        tmp = create_client()
-        sign_in = tmp.auth.sign_in_with_password(
-            {"email": email, "password": test_password}
-        )
-        result[f"{name}_token"] = sign_in.session.access_token
-        result[f"{name}_id"] = uid
+            tmp = create_client()
+            sign_in = tmp.auth.sign_in_with_password(
+                {"email": email, "password": test_password}
+            )
+            result[f"{name}_token"] = sign_in.session.access_token
+            result[f"{name}_id"] = uid
 
-    # --- Seed matches so match-dependent tests don't skip ---
-    # Fetch a valid rule_set_id from /options
-    opts_resp = await app_client.get("/options")
-    rule_set_id = opts_resp.json()["rule_sets"][0]["id"]
+        # --- Seed matches (3 confirmed, 2 unconfirmed) ---
+        opts_resp = await app_client.get("/options")
+        rule_set_id = opts_resp.json()["rule_sets"][0]["id"]
 
-    user1_id = result["user1_id"]
-    user2_id = result["user2_id"]
-    user3_id = result["user3_id"]
-    user1_tok = result["user1_token"]
-    user2_tok = result["user2_token"]
-    user3_tok = result["user3_token"]
+        user1_id = result["user1_id"]
+        user2_id = result["user2_id"]
+        user3_id = result["user3_id"]
+        user1_tok = result["user1_token"]
+        user2_tok = result["user2_token"]
+        user3_tok = result["user3_token"]
 
-    # Report 3 matches: user1 (winner) vs user2 (loser) — user1 reports as participant
-    to_confirm = []
-    for _ in range(3):
-        r = await app_client.post(
-            "/matches",
-            json={"winner_id": user1_id, "loser_id": user2_id, "rule_set_id": rule_set_id},
-            headers={"Authorization": f"Bearer {user1_tok}"},
-        )
-        if r.status_code == 201:
-            to_confirm.append(r.json()["match"]["id"])
+        to_confirm = []
+        for _ in range(3):
+            r = await app_client.post(
+                "/matches",
+                json={"winner_id": user1_id, "loser_id": user2_id, "rule_set_id": rule_set_id},
+                headers={"Authorization": f"Bearer {user1_tok}"},
+            )
+            if r.status_code == 201:
+                mid = r.json()["match"]["id"]
+                to_confirm.append(mid)
+                created["match_ids"].append(mid)
 
-    # Confirm them via user2 (loser, not reporter — confirmation is allowed)
-    if to_confirm:
-        await app_client.post(
-            "/matches/confirm",
-            json={"match_ids": to_confirm},
-            headers={"Authorization": f"Bearer {user2_tok}"},
-        )
+        if to_confirm:
+            await app_client.post(
+                "/matches/confirm",
+                json={"match_ids": to_confirm},
+                headers={"Authorization": f"Bearer {user2_tok}"},
+            )
 
-    # Report 2 unconfirmed matches: user1 (winner) vs user3 (loser) — left pending
-    for _ in range(2):
-        await app_client.post(
-            "/matches",
-            json={"winner_id": user1_id, "loser_id": user3_id, "rule_set_id": rule_set_id},
-            headers={"Authorization": f"Bearer {user3_tok}"},
-        )
+        for _ in range(2):
+            r = await app_client.post(
+                "/matches",
+                json={"winner_id": user1_id, "loser_id": user3_id, "rule_set_id": rule_set_id},
+                headers={"Authorization": f"Bearer {user3_tok}"},
+            )
+            if r.status_code == 201:
+                created["match_ids"].append(r.json()["match"]["id"])
 
-    return result
+        yield result
+    finally:
+        # Teardown. Matches must be removed BEFORE users: the
+        # before_profile_delete trigger PRESERVES matches by reassigning their
+        # FK columns to the sentinel, so any match still referencing a per-run
+        # user at user-deletion time would otherwise survive forever. We delete
+        # matches by membership in the per-run user set (winnerId/loserId/
+        # reporterId) — this covers matches that individual tests created, not
+        # just the ones this fixture reported and tracked in the registry.
+        live_user_ids = [u for u in created["auth_user_ids"] if u != DELETED_USER_SENTINEL_ID]
+        for mid in created["match_ids"]:
+            try:
+                sync_client.from_("Matches").delete().eq("id", mid).execute()
+            except Exception:
+                pass  # best-effort
+        for col in ("winnerId", "loserId", "reporterId"):
+            if not live_user_ids:
+                break
+            try:
+                sync_client.from_("Matches").delete().in_(col, live_user_ids).execute()
+            except Exception:
+                pass  # best-effort
+        for uid in live_user_ids:
+            try:
+                sync_client.auth.admin.delete_user(uid)
+            except Exception:
+                pass  # best-effort; profile cascades via before_profile_delete trigger
 
 
 # --- Token fixtures ---
@@ -222,9 +292,12 @@ async def super_admin_id(reset_and_seed):
 
 @pytest_asyncio.fixture(scope="session")
 async def sync_supabase():
-    """Expose a service-role Supabase sync client for direct DB manipulation in tests."""
-    sa_email = os.environ.get("SUPER_ADMIN_EMAIL")
-    if not sa_email:
+    """Expose a service-role Supabase sync client for direct DB manipulation in tests.
+
+    Returns None when integration tests aren't opted in; the collection hook
+    above generally prevents tests using this from running in that case.
+    """
+    if os.environ.get("RUN_INTEGRATION_TESTS") != "1":
         return None
     from initialize import create_client
     return create_client()

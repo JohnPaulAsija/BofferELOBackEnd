@@ -3,12 +3,11 @@
 # synchronous blocking calls. They are not wrapped in asyncio.to_thread() because
 # they are not intended for use in production or under any concurrent load.
 import logging
-import os
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 from supabase import AsyncClient
 from initialize import get_supabase
-from helpers import resolve_user_profile, ROLE_MAP, DELETED_USER_SENTINEL_ID
+from helpers import resolve_user_profile, ROLE_MAP
 from models import PendingMatchesResponse
 from seed_data import create_test_users, create_test_matches
 
@@ -94,27 +93,6 @@ async def seed_matches(body: SeedMatchesRequest, authorization: str = Header(...
     created = create_test_matches(n=body.n, confirmed=body.confirmed)
     logger.info("admin seed: matches created=%s actor_id=%s", created, caller["user_id"])
     return {"created": created}
-
-
-@router.post("/reset")
-async def reset_data(authorization: str = Header(...), supabase: AsyncClient = Depends(get_supabase)):
-    await _require_super_admin(authorization, supabase)
-
-    # Delete all matches first — Matches rows may reference profiles via FK;
-    # clearing them before the auth-user cascade avoids constraint violations.
-    await supabase.from_("Matches").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-
-    # Delete every auth user except the bootstrap superAdmin.
-    # Deleting an auth user cascades to the profiles row via the DB trigger.
-    bootstrap_email = os.environ["SUPER_ADMIN_EMAIL"].lower()
-    users_resp = await supabase.auth.admin.list_users()
-    for u in users_resp:
-        if (u.email or "").lower() != bootstrap_email and u.id != DELETED_USER_SENTINEL_ID:
-            await supabase.auth.admin.delete_user(u.id)
-            logger.info("admin reset: deleted user email=%s", u.email)
-
-    logger.info("admin reset: complete")
-    return {"reset": True}
 
 
 @router.delete("/matches/{match_id}")

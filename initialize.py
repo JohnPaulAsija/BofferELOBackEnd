@@ -7,15 +7,15 @@ from supabase import acreate_client, AsyncClient, AsyncClientOptions
 
 load_dotenv()
 
-# --- Sync client (used by seed_data.py and admin.py) ---
+# --- Sync client (used by seed_data.py and tests/conftest.py) ---
+# Instantiated lazily via create_client(); no module-load-time DB connect,
+# so importing this module without API_URL set (e.g. unit-test runs) is safe.
 
 def create_client() -> supabase.Client:
     api_url = os.environ["API_URL"]
     api_key_s = os.environ["API_KEY_s"]
     client = supabase.create_client(api_url, api_key_s)
     return client
-
-client = create_client()
 
 # --- Async client (used by all other endpoints) ---
 # Created by init_client() during FastAPI lifespan startup,

@@ -45,25 +45,30 @@ uv run python -m scripts.seed_demo all --env-file test.env
 uv run python -m scripts.seed_demo verify --env-file test.env
 uv run python -m scripts.seed_demo matches --env-file test.env   # top-up later
 uv run python -m scripts.seed_demo reset --env-file test.env     # wipe demo data only
+# Run only integration tests (opt in with RUN_INTEGRATION_TESTS=1)
+RUN_INTEGRATION_TESTS=1 uv run pytest tests/test_public.py tests/test_users.py
 ```
 
 ### Test Environment
 
-Integration tests require a `test.env` file with credentials for a dedicated test Supabase project:
+Configuration lives in a single `.env` file (gitignored). Integration tests are gated behind `RUN_INTEGRATION_TESTS=1`; without it, every test outside `tests/test_helpers.py` and `tests/test_rate_limit.py` is skipped at collection time (see `pytest_collection_modifyitems` in `tests/conftest.py`). Default `pytest` therefore runs the unit suite only, even if `.env` holds prod credentials.
+
+When the gate is on, `reset_and_seed` (session-scoped, autouse):
+- Generates a per-run namespace `run_id = uuid.uuid4().hex[:8]`.
+- Creates 5 test accounts (`user1`, `user2`, `user3`, `admin`, `super_admin`) with emails `test_<run_id>_<role>@bofferelo-test.invalid` — the `.invalid` TLD is reserved by RFC 2606 and can't reach a real inbox.
+- Promotes `admin` and `super_admin` to `role_id` 2 and 3 respectively via direct service-role writes to `profiles`.
+- Seeds 3 confirmed + 2 unconfirmed matches.
+- Tracks every created auth user id and match id in a session registry.
+- On session teardown, deletes only the tracked entities (matches first, then users). The `[deleted]` sentinel id is explicitly skipped. `pytest_sessionfinish` warns if any user namespaced to this run survived teardown.
+
+Required env vars are documented in `.env.example`; the integration-test-only ones are:
 
 ```env
-API_URL=<test-supabase-project-url>
-API_KEY_s=<test-supabase-service-role-key>
-SUPER_ADMIN_EMAIL=<bootstrap-superadmin-email>
-SUPER_ADMIN_PASSWORD=<bootstrap-superadmin-password>
-TEST_USER1_EMAIL=<test-user1-email>
-TEST_USER2_EMAIL=<test-user2-email>
-TEST_USER3_EMAIL=<test-user3-email>
-TEST_ADMIN_EMAIL=<test-admin-email>
-TEST_PASSWORD=<password-for-test-accounts>  # defaults to TestPassword123!
+RUN_INTEGRATION_TESTS=1               # default 0 → integration tests skip
+TEST_PASSWORD=TestPassword123!        # password assigned to per-run users (optional)
 ```
 
-The `reset_and_seed` fixture (session-scoped, autouse) resets the DB via `POST /admin/reset`, creates fresh test accounts, and provides JWT tokens and user IDs to all integration tests. Unit tests run normally without `test.env` — the fixture detects missing env vars and returns an empty dict.
+Prod-safety guarantees: the suite never calls a global delete, never uses fixed emails, never logs in as a persistent privileged account, and never touches data outside its `run_id` namespace.
 
 ### Docker
 
@@ -91,7 +96,7 @@ This is a FastAPI server that pulls data from a Supabase backend and exposes it 
 - `api.py` — FastAPI app setup: CORS middleware (including `PATCH` method), `SlowAPIMiddleware` (rate limiting), router mounting, public endpoints (`/`, `/health`, `/version`, `/options`), and lifespan (creates async Supabase client + httpx client, initialises `FastAPICache` with `InMemoryBackend`, closes httpx client on shutdown)
 - `users.py` — all `/users/*` endpoints (`GET /users`, `GET /users/top`, `GET /users/me`, `GET /users/me/matches`, `GET /users/me/matches/unconfirmed`, `PATCH /users/me/preferences`, `PATCH /users/me/username`, `PATCH /users/me/email`, `DELETE /users/me`, `PATCH /users/{user_id}/preferences`, `PATCH /users/{user_id}/username`, `PATCH /users/{user_id}/email`, `DELETE /users/{user_id}`, `GET /users/{user_id}`, `GET /users/{user_id}/matches`), all `async def`, mounted onto `app` via `APIRouter(prefix="/users")`; includes private helpers `_validate_option` (validates a value against a lookup table), `_apply_preferences` (validates + writes all four preference fields), and `_is_valid_email` (regex-based email format check); account deletion relies on the `before_profile_delete` DB trigger to reassign match FK columns to the sentinel UUID
 - `matches.py` — match endpoints (`GET /matches`, `POST /matches`, `POST /matches/confirm`, `POST /matches/reject`), all `async def`, mounted onto `app` via `APIRouter`; `report_match` calls the `report_match` Postgres RPC which atomically fetches profiles, calculates ELO, and inserts the match row (eliminates TOCTOU race); `confirm_matches` batch-fetches all requested matches in one round trip then calls `confirm_match_and_update_elo` once per match, clearing `leaderboard` and `matches` caches once after the loop if any succeeded; `reject_matches` follows the same batch pattern using the `reject_match` Postgres RPC; both bulk endpoints accept 1–50 match IDs (`BulkMatchActionRequest`), apply per-match authorization with partial-success semantics, and return `BulkMatchActionResponse`; all three write endpoints are rate-limited via `@limiter.limit()`
-- `admin.py` — admin/superAdmin routes, `async def`, mounted onto `app` via `APIRouter`; `_require_super_admin` enforces `role_id >= 3`; `_require_admin` enforces `role_id >= 2`; `GET /admin/matches/pending` returns paginated system-wide pending matches (admin+superAdmin); `POST /admin/reset` deletes all matches and non-bootstrap auth users, excluding the `[deleted]` sentinel (test-infrastructure only); seed logic itself is sync via `seed_data.py`
+- `admin.py` — admin/superAdmin routes, `async def`, mounted onto `app` via `APIRouter`; `_require_super_admin` enforces `role_id >= 3`; `_require_admin` enforces `role_id >= 2`; `GET /admin/matches/pending` returns paginated system-wide pending matches (admin+superAdmin); `POST /admin/seed/*` endpoints call the sync helpers in `seed_data.py`; `DELETE /admin/matches/{id}` permanently removes a match by id (no ELO rollback)
 - `seed_data.py` — test data creation logic (`create_test_users`, `create_test_matches`); used by `admin.py` and runnable standalone via CLI subcommands; ELO formula is inlined (no `elo.py` dependency)
 - `scripts/seed_demo.py` — demo data seeder (one-shot CLI tool, NOT used by tests; separate from `seed_data.py` at the root which is test infrastructure); creates up to 174 demo users across 15 themed sets and ~1,740 back-dated matches via the production RPCs; demo data marked by `@demo.boffer.local` email suffix; gender mapping deterministic via `FEMALE_NAMES` set; subcommands: `users`, `matches`, `all`, `reset`, `verify`; `--themes` / `--from` / `--to` / `--count` / `--env-file` / `--yes` flags (all subcommand-level — must come AFTER the subcommand); full workflow doc at `scripts/README.md`; design at `plans/2026-05-13-demo-seed-design.md`
 - `main.py` — starts the uvicorn server
@@ -126,12 +131,11 @@ This is a FastAPI server that pulls data from a Supabase backend and exposes it 
 - `PATCH /users/{user_id}/preferences` — update any user's preferences; superAdmin only (`role_id >= 3`); returns 403 for non-superAdmins, 404 if target user not found (requires `Authorization` header)
 - `PATCH /users/{user_id}/username` — superAdmin changes any user's username; 403 for non-superAdmins, 404 if user not found, 409 if taken (requires `Authorization` header)
 - `PATCH /users/{user_id}/email` — superAdmin changes any user's email (immediate, no confirmation); 403 for non-superAdmins, 422 for invalid email (requires `Authorization` header)
-- `DELETE /users/{user_id}` — superAdmin deletes any account; 400 if target is sentinel or bootstrap superAdmin; 403 for non-superAdmins, 404 if not found (requires `Authorization` header)
+- `DELETE /users/{user_id}` — superAdmin deletes any account; 400 if target is the sentinel; 403 for non-superAdmins, 404 if not found (requires `Authorization` header)
 - `POST /matches` — report a match (body: `{winner_id, loser_id, rule_set_id}`; `rule_set_id` is a required UUID referencing the `rule_sets` table; requires `Authorization` header; regular users must be a participant, admins/superAdmins can report for any two users; ELO snapshot and delta are calculated atomically in the `report_match` Postgres RPC; returns 422 if `rule_set_id` is invalid)
 - `POST /matches/confirm` — confirm 1–50 pending matches (body: `{"match_ids": [...]}`); per-match authorization + partial-success semantics; calls `confirm_match_and_update_elo` Postgres RPC per match; clears `leaderboard`/`matches` caches once if any succeeded; returns `BulkMatchActionResponse` (requires `Authorization` header)
 - `POST /matches/reject` — reject 1–50 pending matches (body: `{"match_ids": [...]}`); per-match authorization + partial-success semantics; calls `reject_match` Postgres RPC per match; no ELO effect; returns `BulkMatchActionResponse` (requires `Authorization` header)
 - `GET /admin/matches/pending` — all pending (confirmedAt IS NULL, rejectedAt IS NULL) matches system-wide; admin or superAdmin only; cursor-based pagination via `limit` (default 50, max 100) and `before` (ISO 8601 `reportedAt` cursor); sorted by `reportedAt` DESC (requires `Authorization` header)
-- `POST /admin/reset` — delete all `Matches` rows and all auth users except the bootstrap superAdmin (identified by `SUPER_ADMIN_EMAIL` env var) and the `[deleted]` sentinel user; superAdmin only; test-infrastructure only — never call in production (requires `Authorization` header)
 - `POST /admin/seed/users` — create test users; superAdmin only (requires `Authorization` header)
 - `POST /admin/seed/matches` — create test matches; superAdmin only (requires `Authorization` header)
 - `DELETE /admin/matches/{match_id}` — permanently delete a match by ID; superAdmin only (requires `Authorization` header)
@@ -211,11 +215,11 @@ async def my_endpoint(authorization: str = Header(...), supabase: AsyncClient = 
 - Any authenticated user — deletes their own account (user_id from JWT)
 
 **Delete user authorization** (`DELETE /users/{user_id}`):
-- `role_id >= ROLE_MAP["superAdmin"]` — can delete any user except sentinel and bootstrap superAdmin
+- `role_id >= ROLE_MAP["superAdmin"]` — can delete any user except the sentinel
 - All other roles — `403 Forbidden`
 
 **Error responses:**
-- `400` — invalid request (e.g. winner and loser are the same user, match already confirmed, match already rejected, or attempting to delete sentinel/bootstrap superAdmin)
+- `400` — invalid request (e.g. winner and loser are the same user, match already confirmed, match already rejected, or attempting to delete the sentinel)
 - `401` — invalid or expired JWT, or `Authorization` header not in `Bearer <token>` format
 - `403` — valid JWT but insufficient role
 - `404` — valid JWT but no profile or match found
@@ -301,4 +305,3 @@ Optional:
 - `PORT` — server port (default `8000`)
 - `CORS_ORIGINS` — comma-separated list of additional allowed CORS origins (e.g. Cloud Run URL, production web domain)
 - `TEST_PASSWORD` — password assigned to all accounts created by `seed_data.py`; used when calling `create_test_users` (via `POST /admin/seed/users` or the CLI); defaults to `"TestPassword123!"` if unset; not needed in production
-- `SUPER_ADMIN_EMAIL` — email of the bootstrap superAdmin account to skip when `POST /admin/reset` deletes auth users; required only when calling that endpoint (comes from `test.env` in test runs)
